@@ -223,10 +223,18 @@ npm.cmd test
 
 | Nhóm việc | Người phụ trách | Nội dung |
 | --- | --- | --- |
-| Frontend | Huy | Xây dựng UI màn hình chính, chatbot, card món ăn, trạng thái chọn món, gọi API backend |
-| Backend | Dương hoặc Khải | Xây dựng Express API, route recommend/correct/health/docs, xử lý prompt, constraint, recommendation |
-| Data | Đạt | Chuẩn bị mock data món ăn, schema dữ liệu, kiểm tra dữ liệu mẫu |
-| Docs/Demo | Khải + Dương | Viết tài liệu, API contract, test plan, demo script |
+| Frontend | Dương, Đạt | Xây dựng UI màn hình chính, chatbot, card món ăn, trạng thái chọn món, gọi API backend |
+| Backend | Huy, Khải | Xây dựng Express API, route recommend/correct/health/docs, xử lý prompt, constraint, recommendation |
+| Data | Huy, Khải | Chuẩn bị mock data món ăn, schema dữ liệu, kiểm tra dữ liệu mẫu |
+| Docs/Demo | Dương, Đạt | Viết tài liệu, API contract, test plan, demo script |
+
+
+| Thành viên | Phần phụ trách | Output cần có |
+|---|---|---|
+| Huy, Khải | Xây dựng flow chatbot: màn hình nhập nhu cầu, câu hỏi làm rõ, màn hình trả 3 gợi ý món/quán. | Prototype chạy được happy path và low-confidence path. |
+| Đạt | Chuẩn bị mock data món/quán gần VinUni: tên món, giá, ETA, mức độ no, độ nóng, tag khẩu vị, trust signal. | File/mock data 10-15 món/quán dùng được cho prototype. |
+| Đạt | Viết logic gợi ý và correction: lọc theo thời gian còn lại, ngân sách, khẩu vị, món nóng/dễ ăn nhanh. | Rule/prompt gợi ý món và flow cập nhật kết quả khi user sửa tiêu chí. |
+| Dương, Khải | Test prototype và chuẩn bị demo: happy, low-confidence, failure, correction. | Ghi chú test 4 paths, case failure AI gợi ý món giao không kịp, demo script 3-5 phút. |
 
 ## 7. Ghi chú khi push/pull repo
 
