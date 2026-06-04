@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { ApiResponse } from "../types/api.js";
 import type { UserConstraints } from "../types/constraint.js";
-import type { ChatHistoryMessage } from "./chat-history.service.js";
 import { openAIService, type LlmClient } from "./openai.service.js";
 
 const answerSchema = z.object({
@@ -378,12 +377,10 @@ function buildAnswerPrompt(
   message: string,
   constraints: UserConstraints,
   response: ApiResponse,
-  chatHistory: ChatHistoryMessage[],
 ): string {
   return JSON.stringify(
     {
       user_message: message,
-      conversation_history: chatHistory.slice(-12),
       status: response.status,
       constraints,
       recommendations: response.recommendations.map((recommendation) => ({
@@ -415,7 +412,6 @@ export async function generateAssistantAnswer(
   message: string,
   response: ApiResponse,
   llmClient: LlmClient = openAIService,
-  chatHistory: ChatHistoryMessage[] = [],
 ): Promise<ApiResponse> {
   if (!llmClient.isConfigured()) {
     return {
@@ -432,7 +428,6 @@ export async function generateAssistantAnswer(
         message,
         response.constraints,
         response,
-        chatHistory,
       ),
     });
     const answer = answerSchema.parse(rawAnswer);
