@@ -1,0 +1,273 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Food For You API",
+    "description": "API gợi ý món ăn trưa — Xanh SM Ngon Lunch Chatbot",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Kiểm tra backend còn chạy không.",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Backend is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "message": "Backend is running"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommend": {
+      "post": {
+        "summary": "Gợi ý món ăn",
+        "description": "User gửi nhu cầu ăn trưa và nhận gợi ý món.",
+        "tags": ["Recommendation"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequest"
+              },
+              "examples": {
+                "happyPath": {
+                  "summary": "Happy path",
+                  "value": {
+                    "message": "Mình có 1 tiếng nghỉ, căng tin đông, cần món nóng dưới 80k, không cay.",
+                    "constraints": {}
+                  }
+                },
+                "needClarification": {
+                  "summary": "Low-confidence path",
+                  "value": {
+                    "message": "Ăn gì nhanh cũng được.",
+                    "constraints": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recommendation response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/correct": {
+      "post": {
+        "summary": "Sửa tiêu chí và gợi ý lại",
+        "description": "Dùng khi user sửa tiêu chí sau khi đã nhận gợi ý.",
+        "tags": ["Recommendation"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequest"
+              },
+              "examples": {
+                "correction": {
+                  "summary": "Correction path",
+                  "value": {
+                    "message": "Chỉ còn 35 phút, không ăn cay.",
+                    "constraints": {
+                      "time_left_minutes": 60,
+                      "budget_vnd": 80000,
+                      "avoid_spicy": false,
+                      "prefer_hot": true,
+                      "meal_size": "unknown",
+                      "preferred_tags": []
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated recommendation response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UserConstraints": {
+        "type": "object",
+        "properties": {
+          "time_left_minutes": { "type": "integer", "example": 60 },
+          "budget_vnd": { "type": "integer", "example": 80000 },
+          "avoid_spicy": { "type": "boolean", "example": true },
+          "prefer_hot": { "type": "boolean", "example": true },
+          "meal_size": {
+            "type": "string",
+            "enum": ["light", "full", "unknown"],
+            "example": "unknown"
+          },
+          "preferred_tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": []
+          }
+        }
+      },
+      "FoodRecommendation": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "restaurant",
+          "price_vnd",
+          "eta_minutes",
+          "reason",
+          "risk",
+          "tags",
+          "trust_signal"
+        ],
+        "properties": {
+          "id": { "type": "string", "example": "food_01" },
+          "name": { "type": "string", "example": "Cơm gà xối mỡ" },
+          "restaurant": { "type": "string", "example": "Cơm Gà Gần VinUni" },
+          "price_vnd": { "type": "integer", "example": 65000 },
+          "eta_minutes": { "type": "integer", "example": 25 },
+          "distance_km": { "type": "number", "example": 1.8 },
+          "reason": { "type": "string" },
+          "risk": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "example": "low"
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["com", "nong", "no"]
+          },
+          "trust_signal": { "type": "string" }
+        }
+      },
+      "RecommendRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Tin nhắn mới nhất của user"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/UserConstraints"
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "assistant_message",
+          "constraints",
+          "recommendations",
+          "questions"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "need_clarification", "no_result", "error"]
+          },
+          "assistant_message": { "type": "string" },
+          "constraints": { "$ref": "#/components/schemas/UserConstraints" },
+          "recommendations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FoodRecommendation" }
+          },
+          "questions": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "message"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"] },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}
