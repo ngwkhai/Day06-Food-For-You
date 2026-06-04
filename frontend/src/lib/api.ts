@@ -1,11 +1,13 @@
 import type {
+  BackendApiResponse,
   BrandDeal,
   Category,
   ChatApiResponse,
   ChatFoodSuggestion,
-  ChatHistoryItem,
   FoodDeal,
-  StopChatRequest
+  FoodRecommendation,
+  StopChatRequest,
+  UserConstraints
 } from "./types";
 
 export const categories: Category[] = [
@@ -107,62 +109,58 @@ export const brandDeals: BrandDeal[] = [
   }
 ];
 
-export const chatFoodSuggestions: ChatFoodSuggestion[] = [
-  {
-    id: "pho-bo",
-    name: "Phở bò truyền thống",
-    price: "32K",
-    time: "20-30 phút",
-    image: "🍜",
-    accent: "#e5f7ed"
-  },
-  {
-    id: "banh-mi",
-    name: "Bánh mì ốp la",
-    price: "25K",
-    time: "10-15 phút",
-    image: "🥖",
-    accent: "#fff3d6"
-  },
-  {
-    id: "chao-ga",
-    name: "Cháo gà nấm",
-    price: "28K",
-    time: "15-20 phút",
-    image: "🥣",
-    accent: "#f0f4f2"
-  }
-];
+const TAG_EMOJI: Record<string, string> = {
+  com: "🍛",
+  bun: "🍜",
+  pho: "🍜",
+  mi: "🍝",
+  banhmi: "🥖",
+  xoi: "🍚",
+  healthy: "🥗",
+  nong: "♨️",
+  nhanh: "⚡",
+  no: "🍱",
+  nhe: "🥗",
+  cay: "🌶️",
+  khong_cay: "✅"
+};
+
+function getApiBaseUrl() {
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+}
 
 export async function getHomeDeals() {
   return {
     categories,
     foodDeals,
-    brandDeals,
-    chatFoodSuggestions
+    brandDeals
   };
 }
 
 export async function sendChatPrompt(
-  prompt: string,
-  history: ChatHistoryItem[] = [],
-  signal?: AbortSignal
+  message: string,
+  constraints: UserConstraints = {},
+  options: {
+    signal?: AbortSignal;
+    useCorrect?: boolean;
+  } = {}
 ): Promise<ChatApiResponse> {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const endpoint = options.useCorrect ? "/api/correct" : "/api/recommend";
   const timeoutController = new AbortController();
-  const requestSignal = signal ?? timeoutController.signal;
-  const timeout = signal ? undefined : window.setTimeout(() => timeoutController.abort(), 10000);
+  const requestSignal = options.signal ?? timeoutController.signal;
+  const timeout = options.signal
+    ? undefined
+    : window.setTimeout(() => timeoutController.abort(), 30000);
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/recommend`, {
+    const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        message: prompt,
-        prompt,
-        history
+        message,
+        constraints
       }),
       signal: requestSignal
     });
@@ -171,14 +169,14 @@ export async function sendChatPrompt(
       throw new DOMException("Request aborted", "AbortError");
     }
 
-    if (!response.ok) {
-      throw new Error(`Backend responded with ${response.status}`);
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
+    const data = (await response.json()) as BackendApiResponse;
 
     if (requestSignal.aborted) {
       throw new DOMException("Request aborted", "AbortError");
+    }
+
+    if (!response.ok) {
+      return normalizeChatResponse(data, true);
     }
 
     return normalizeChatResponse(data);
@@ -187,7 +185,7 @@ export async function sendChatPrompt(
       throw error;
     }
 
-    return createFallbackChatResponse(prompt);
+    return createFallbackChatResponse(message);
   } finally {
     if (timeout) {
       window.clearTimeout(timeout);
@@ -195,103 +193,114 @@ export async function sendChatPrompt(
   }
 }
 
-export async function stopChatResponse(request: StopChatRequest): Promise<void> {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
+export async function checkBackendHealth(): Promise<boolean> {
   try {
-    await fetch(`${apiBaseUrl}/api/recommend/stop`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(request),
-      keepalive: true
-    });
+    const response = await fetch(`${getApiBaseUrl()}/health`);
+    if (!response.ok) {
+      return false;
+    }
+
+    const data = (await response.json()) as { status?: string };
+    return data.status === "ok";
   } catch {
-    // Stop is best-effort: the UI must stop immediately even if backend is unavailable.
+    return false;
   }
 }
 
-function normalizeChatResponse(data: Record<string, unknown>): ChatApiResponse {
-  const assistantMessage =
-    getString(data.assistantMessage) ??
-    getString(data.assistant_message) ??
-    getString(data.message) ??
-    getString(data.reply) ??
-    getString(data.text) ??
-    "Mình đã nhận được yêu cầu của bạn.";
+export function stopChatResponse(_request: StopChatRequest): void {
+  // Client-side abort only. Backend contract has no stop endpoint.
+}
 
-  const rawSuggestions = data.recommendations ?? data.suggestions ?? data.items;
-
+function normalizeChatResponse(
+  data: BackendApiResponse,
+  forceFallback = false
+): ChatApiResponse {
   return {
-    assistantMessage,
-    suggestions: normalizeSuggestions(rawSuggestions)
+    status: data.status ?? "error",
+    assistantMessage:
+      data.assistant_message?.trim() ||
+      "Có lỗi xảy ra khi xử lý yêu cầu. Vui lòng thử lại.",
+    constraints: data.constraints ?? {},
+    suggestions:
+      data.status === "ok"
+        ? normalizeSuggestions(data.recommendations)
+        : undefined,
+    questions: Array.isArray(data.questions) ? data.questions.slice(0, 3) : [],
+    isFallback: forceFallback || data.status === "error"
   };
 }
 
-function normalizeSuggestions(value: unknown): ChatFoodSuggestion[] | undefined {
-  if (!Array.isArray(value)) {
+function normalizeSuggestions(
+  recommendations: FoodRecommendation[] | undefined
+): ChatFoodSuggestion[] | undefined {
+  if (!Array.isArray(recommendations) || recommendations.length === 0) {
     return undefined;
   }
 
-  const suggestions = value.slice(0, 4).map((item, index) => {
-    const record = isRecord(item) ? item : {};
-    const name =
-      getString(record.name) ??
-      getString(record.title) ??
-      getString(record.food_name) ??
-      `Món gợi ý ${index + 1}`;
-    const price =
-      getString(record.price) ??
-      getString(record.price_label) ??
-      formatNumberPrice(record.price_vnd) ??
-      "Liên hệ";
-    const time =
-      getString(record.time) ??
-      getString(record.eta) ??
-      getString(record.delivery_time) ??
-      "15-25 phút";
-
-    return {
-      id: getString(record.id) ?? `backend-${index}`,
-      name,
-      price,
-      time,
-      image: getString(record.image) ?? "🍽️",
-      accent: getString(record.accent) ?? "#edf9f7"
-    };
-  });
-
-  return suggestions.length > 0 ? suggestions : undefined;
+  return recommendations.slice(0, 3).map((item, index) => ({
+    id: item.id || `backend-${index}`,
+    name: item.name || `Món gợi ý ${index + 1}`,
+    restaurant: item.restaurant || "Quán gần bạn",
+    price: formatPrice(item.price_vnd),
+    time: formatEta(item.eta_minutes),
+    reason: item.reason || item.trust_signal || "Phù hợp nhu cầu của bạn.",
+    risk: item.risk || "medium",
+    image: pickFoodEmoji(item.tags),
+    accent: pickAccent(item.risk)
+  }));
 }
 
-function createFallbackChatResponse(prompt: string): ChatApiResponse {
-  const lowerPrompt = prompt.toLowerCase();
-  const wantsFood =
-    lowerPrompt.includes("món") ||
-    lowerPrompt.includes("ăn") ||
-    lowerPrompt.includes("sáng") ||
-    lowerPrompt.includes("trưa") ||
-    lowerPrompt.includes("tối");
-
+function createFallbackChatResponse(message: string): ChatApiResponse {
   return {
+    status: "error",
     assistantMessage:
-      "Mình đã nhận prompt của bạn. Backend hiện chưa phản hồi, nên mình đang hiển thị câu trả lời mẫu để bạn test luồng chat.",
-    suggestions: wantsFood ? chatFoodSuggestions : undefined,
+      "Mình chưa kết nối được backend. Hãy kiểm tra backend đang chạy ở http://localhost:8000 rồi thử lại.",
+    constraints: {},
+    questions: [],
     isFallback: true
   };
 }
 
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+function formatPrice(priceVnd: number | undefined) {
+  if (typeof priceVnd !== "number" || Number.isNaN(priceVnd)) {
+    return "Liên hệ";
+  }
+
+  return `${Math.round(priceVnd / 1000)}K`;
 }
 
-function formatNumberPrice(value: unknown): string | undefined {
-  return typeof value === "number" ? `${Math.round(value / 1000)}K` : undefined;
+function formatEta(etaMinutes: number | undefined) {
+  if (typeof etaMinutes !== "number" || Number.isNaN(etaMinutes)) {
+    return "15-25 phút";
+  }
+
+  return `${etaMinutes} phút`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function pickFoodEmoji(tags: string[] | undefined) {
+  if (!tags?.length) {
+    return "🍽️";
+  }
+
+  for (const tag of tags) {
+    if (TAG_EMOJI[tag]) {
+      return TAG_EMOJI[tag];
+    }
+  }
+
+  return "🍽️";
+}
+
+function pickAccent(risk: FoodRecommendation["risk"]) {
+  if (risk === "low") {
+    return "#edf9f7";
+  }
+
+  if (risk === "high") {
+    return "#fff0f0";
+  }
+
+  return "#fff8e8";
 }
 
 function isAbortError(error: unknown) {

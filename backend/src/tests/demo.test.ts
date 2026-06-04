@@ -171,6 +171,81 @@ async function testMockedOpenAIExtractionAndAnswer() {
   assert.ok(response.recommendations.length > 0);
 }
 
+async function testGreetingDoesNotRecommend() {
+  const response = await buildRecommendationResponse(
+    "chào bạn",
+    {
+      time_left_minutes: 60,
+      budget_vnd: 80000,
+      avoid_spicy: true,
+      prefer_hot: true,
+    },
+    {},
+    { llmClient: new FakeLlmClient(false) },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "need_clarification");
+  assert.equal(response.recommendations.length, 0);
+  assert.deepEqual(response.constraints, {});
+}
+
+async function testOffTopicDoesNotRecommend() {
+  const response = await buildRecommendationResponse(
+    "Bạn có thể giúp mình những gì?",
+    {
+      time_left_minutes: 60,
+      budget_vnd: 80000,
+      avoid_spicy: true,
+      prefer_hot: true,
+    },
+    {},
+    { llmClient: new FakeLlmClient(false) },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "need_clarification");
+  assert.equal(response.recommendations.length, 0);
+  assert.deepEqual(response.constraints, {});
+}
+
+async function testVagueFoodRequestIgnoresPreviousConstraints() {
+  const response = await buildRecommendationResponse(
+    "Ăn gì nhanh cũng được.",
+    {
+      time_left_minutes: 60,
+      budget_vnd: 80000,
+      avoid_spicy: true,
+      prefer_hot: true,
+    },
+    {},
+    { llmClient: new FakeLlmClient(false) },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "need_clarification");
+  assert.equal(response.recommendations.length, 0);
+  assert.equal(response.constraints.time_left_minutes, undefined);
+  assert.equal(response.constraints.budget_vnd, undefined);
+}
+
+async function testTrackOrderIsOffTopic() {
+  const response = await buildRecommendationResponse(
+    "Theo dõi đơn hàng giúp mình.",
+    {
+      time_left_minutes: 60,
+      budget_vnd: 80000,
+    },
+    {},
+    { llmClient: new FakeLlmClient(false) },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "need_clarification");
+  assert.equal(response.recommendations.length, 0);
+  assert.deepEqual(response.constraints, {});
+}
+
 async function testOpenAIInvalidJsonFallsBack() {
   const response = await buildRecommendationResponse(
     "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
@@ -195,6 +270,10 @@ await testHappyPathFallback();
 await testLowConfidencePathFallback();
 await testCorrectionPathFallback();
 await testNoResultPathFallback();
+await testGreetingDoesNotRecommend();
+await testOffTopicDoesNotRecommend();
+await testVagueFoodRequestIgnoresPreviousConstraints();
+await testTrackOrderIsOffTopic();
 await testMockedOpenAIExtractionAndAnswer();
 await testOpenAIInvalidJsonFallsBack();
 

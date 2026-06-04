@@ -5,6 +5,12 @@ import type { FoodRecommendation } from "../types/food.js";
 import { generateAssistantAnswer } from "./answer-generation.service.js";
 import { extractConstraints } from "./constraint-extraction.service.js";
 import { searchFoods } from "./food-search.service.js";
+import {
+  detectMessageIntent,
+  getResponseConstraints,
+  shouldAskForClarification,
+  shouldMergePreviousConstraints,
+} from "./message-intent.service.js";
 import type { LlmClient } from "./openai.service.js";
 import { recommendFoods } from "./recommendation.service.js";
 import { buildErrorResponse } from "./response.service.js";
@@ -34,20 +40,6 @@ function buildClarificationQuestions(constraints: UserConstraints): string[] {
   }
 
   return questions.slice(0, 3);
-}
-
-function shouldAskForClarification(
-  constraints: UserConstraints,
-  hasUsefulSignal: boolean,
-): boolean {
-  if (!hasUsefulSignal) {
-    return true;
-  }
-
-  return (
-    constraints.time_left_minutes === undefined ||
-    constraints.budget_vnd === undefined
-  );
 }
 
 function buildNoResultQuestions(constraints: UserConstraints): string[] {
@@ -103,55 +95,113 @@ function buildOkMessage(
   return `${prefix} ${recommendations.length} món${detail}.`;
 }
 
+function buildGreetingResponse(): ApiResponse {
+  return {
+    status: "need_clarification",
+    assistant_message:
+      "Chào bạn! Mình là trợ lý gợi ý bữa trưa Xanh SM Ngon. Bạn cho mình biết thời gian nghỉ và ngân sách để gợi ý món phù hợp nhé.",
+    constraints: {},
+    recommendations: [],
+    questions: [
+      "Bạn còn khoảng bao nhiêu phút trước khi vào lớp?",
+      "Ngân sách khoảng bao nhiêu?",
+    ],
+  };
+}
+
+function buildOffTopicResponse(): ApiResponse {
+  return {
+    status: "need_clarification",
+    assistant_message:
+      "Mình chỉ hỗ trợ gợi ý món ăn cho bữa trưa trên Xanh SM Ngon. Bạn cho mình biết thời gian nghỉ và ngân sách để mình gợi ý món nhé.",
+    constraints: {},
+    recommendations: [],
+    questions: [
+      "Bạn còn khoảng bao nhiêu phút trước khi vào lớp?",
+      "Ngân sách khoảng bao nhiêu?",
+    ],
+  };
+}
+
 async function buildBaseResponse(
   message: string,
   previousConstraints: UserConstraints,
   options: OrchestratorOptions,
   dependencies: OrchestratorDependencies,
 ): Promise<ApiResponse> {
+  const intent = detectMessageIntent(message, previousConstraints, {
+    isCorrectionMode: options.isCorrection,
+  });
+
+  if (intent === "greeting") {
+    return buildGreetingResponse();
+  }
+
+  if (intent === "off_topic") {
+    return buildOffTopicResponse();
+  }
+
+  const mergePrevious = shouldMergePreviousConstraints(
+    intent,
+    previousConstraints,
+  );
   const extraction = await extractConstraints(
     message,
     previousConstraints,
     dependencies.llmClient,
+    { mergePrevious },
   );
-  const { constraints } = extraction;
+  const responseConstraints = getResponseConstraints(
+    intent,
+    extraction.constraints,
+    extraction.currentConstraints,
+  );
 
-  if (shouldAskForClarification(constraints, extraction.hasUsefulSignal)) {
+  if (
+    shouldAskForClarification(
+      intent,
+      responseConstraints,
+      extraction.currentMessageHasUsefulSignal,
+    )
+  ) {
     return {
       status: "need_clarification",
       assistant_message:
         "Mình cần thêm vài thông tin để tránh gợi ý món giao không kịp hoặc không đúng nhu cầu.",
-      constraints,
+      constraints: responseConstraints,
       recommendations: [],
       questions:
         extraction.clarifying_questions.length > 0
           ? extraction.clarifying_questions.slice(0, 3)
-          : buildClarificationQuestions(constraints),
+          : buildClarificationQuestions(responseConstraints),
     };
   }
 
-  const candidateFoods = await searchFoods(constraints, dependencies.repository);
-  const recommendations = recommendFoods(candidateFoods, constraints);
+  const candidateFoods = await searchFoods(
+    responseConstraints,
+    dependencies.repository,
+  );
+  const recommendations = recommendFoods(candidateFoods, responseConstraints);
 
   if (recommendations.length === 0) {
     return {
       status: "no_result",
       assistant_message:
         "Hiện chưa có món nào thỏa mãn tất cả điều kiện. Bạn có thể tăng ngân sách, chọn món ăn nhẹ hơn hoặc chấp nhận ETA dài hơn một chút.",
-      constraints,
+      constraints: responseConstraints,
       recommendations: [],
-      questions: buildNoResultQuestions(constraints),
+      questions: buildNoResultQuestions(responseConstraints),
     };
   }
 
   return {
     status: "ok",
     assistant_message: buildOkMessage(
-      constraints,
+      responseConstraints,
       recommendations,
       options.isCorrection ?? false,
     ),
-    constraints,
+    constraints: responseConstraints,
     recommendations,
     questions: [],
   };
