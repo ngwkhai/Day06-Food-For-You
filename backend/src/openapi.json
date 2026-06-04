@@ -218,7 +218,25 @@
             "items": { "type": "string" },
             "example": ["com", "nong", "no"]
           },
-          "trust_signal": { "type": "string" }
+          "trust_signal": { "type": "string" },
+          "image_url": {
+            "type": "string",
+            "example": "http://localhost:8000/images/food_01.jpg"
+          }
+        }
+      },
+      "ChatHistoryMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant"]
+          },
+          "content": {
+            "type": "string",
+            "description": "Nội dung tin nhắn trong cuộc trò chuyện hiện tại"
+          }
         }
       },
       "RecommendRequest": {
@@ -231,6 +249,13 @@
           },
           "constraints": {
             "$ref": "#/components/schemas/UserConstraints"
+          },
+          "history": {
+            "type": "array",
+            "description": "Lịch sử chat các lượt trước trong cùng một cuộc trò chuyện",
+            "items": {
+              "$ref": "#/components/schemas/ChatHistoryMessage"
+            }
           }
         }
       },

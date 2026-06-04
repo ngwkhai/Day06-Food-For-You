@@ -53,6 +53,7 @@ export type FoodRecommendation = {
   risk: "low" | "medium" | "high";
   tags: string[];
   trust_signal: string;
+  image_url?: string;
 };
 
 export type BackendApiResponse = {
@@ -72,14 +73,23 @@ export type ChatFoodSuggestion = {
   reason: string;
   risk: "low" | "medium" | "high";
   image: string;
+  imageUrl?: string;
   accent: string;
 };
 
 export type ChatRole = "assistant" | "user";
 
+export type ChatHistoryMessage = {
+  role: ChatRole;
+  content: string;
+};
+
+export type ChatMessageKind = "intro" | "chat";
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
+  kind?: ChatMessageKind;
   content: string;
   time: string;
   suggestions?: ChatFoodSuggestion[];

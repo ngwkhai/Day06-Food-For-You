@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { normalizeChatHistory } from "../services/chat-history.util.js";
 import { buildRecommendationResponse } from "../services/recommendation-orchestrator.service.js";
 import { buildErrorResponse } from "../services/response.service.js";
 import type { CorrectRequest } from "../types/api.js";
@@ -21,6 +22,8 @@ correctRouter.post("/", async (req, res) => {
       req.body.message,
       req.body.constraints ?? {},
       { isCorrection: true },
+      {},
+      normalizeChatHistory(req.body.history),
     );
 
     res.json(response);

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { buildChatHistoryPayload } from "./chat-history.util.js";
+import type { ChatHistoryMessage } from "../types/chat.js";
 import {
   normalizeConstraints,
   type UserConstraints,
@@ -28,7 +30,9 @@ Bạn là bộ trích xuất ràng buộc gợi ý bữa trưa từ tin nhắn t
 Chỉ trả về một JSON object hợp lệ đúng output_contract, không thêm markdown hay giải thích.
 
 Nguyên tắc:
-- Chỉ suy luận từ user_message và previous_constraints; không bịa thời gian, ngân sách, món ăn hoặc quán mới.
+- Chỉ suy luận từ user_message, recent_turns, older_turns (nếu có) và previous_constraints; không bịa thời gian, ngân sách, món ăn hoặc quán mới.
+- Thứ tự ưu tiên context: user_message > recent_turns (recency_rank cao hơn = gần hiện tại hơn) > previous_constraints > older_turns.
+- Khi recent_turns và older_turns mâu thuẫn, bám recent_turns và user_message; older_turns chỉ là nền tham khảo.
 - Nếu user_message cập nhật một tiêu chí, giá trị mới ghi đè previous_constraints.
 - Nếu thiếu thông tin, để null/unknown và ghi vào missing_fields; clarifying_questions chỉ là gợi ý tùy chọn, không chặn gợi ý món.
 - preferred_tags chỉ được dùng các tag trong allowed_tags.
@@ -60,6 +64,7 @@ export type ConstraintExtractionResult = {
 
 export type ExtractConstraintsOptions = {
   mergePrevious?: boolean;
+  history?: ChatHistoryMessage[];
 };
 
 function removeNullValues(constraints: z.infer<typeof constraintsSchema>): UserConstraints {
@@ -123,10 +128,12 @@ function hasUsefulSignal(constraints: UserConstraints): boolean {
 function buildExtractionPrompt(
   message: string,
   previousConstraints: UserConstraints,
+  history: ChatHistoryMessage[] = [],
 ): string {
   return JSON.stringify(
     {
       user_message: message,
+      ...buildChatHistoryPayload(history),
       previous_constraints: previousConstraints,
       allowed_tags: [
         "com",
@@ -195,6 +202,7 @@ export async function extractConstraints(
   options: ExtractConstraintsOptions = {},
 ): Promise<ConstraintExtractionResult> {
   const mergePrevious = options.mergePrevious ?? true;
+  const history = options.history ?? [];
   const normalizedPreviousConstraints = normalizeConstraints(previousConstraints);
   const baseConstraints = mergePrevious ? normalizedPreviousConstraints : {};
   const currentConstraints = getCurrentMessageConstraints(message);
@@ -211,7 +219,7 @@ export async function extractConstraints(
     const rawExtraction = await llmClient.createJsonCompletion({
       temperature: 0,
       systemPrompt: EXTRACTION_SYSTEM_PROMPT,
-      userPrompt: buildExtractionPrompt(message, baseConstraints),
+      userPrompt: buildExtractionPrompt(message, baseConstraints, history),
     });
     const extraction = extractionSchema.parse(rawExtraction);
     const mergedConstraints = normalizeConstraints({

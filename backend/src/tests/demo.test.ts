@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 
 import { getAllFoods } from "../data/food.repository.js";
 import type { LlmClient } from "../services/openai.service.js";
+import {
+  normalizeChatHistory,
+  prepareChatHistoryForLlm,
+} from "../services/chat-history.util.js";
+import type { ChatHistoryMessage } from "../types/chat.js";
+import {
+  rerankFoodsWithAi,
+  selectRecommendations,
+} from "../services/food-rerank.service.js";
+import { searchFoods } from "../services/food-search.service.js";
 import { buildRecommendationResponse } from "../services/recommendation-orchestrator.service.js";
 import type { UserConstraints } from "../types/constraint.js";
 
@@ -62,6 +72,9 @@ async function testHappyPathFallback() {
 
   for (const recommendation of response.recommendations) {
     const food = getFoodById(recommendation.id);
+    assert.ok(
+      recommendation.image_url?.includes(`/images/${recommendation.id}`),
+    );
     assert.ok(food.price_vnd <= 80000);
     assert.ok(food.eta_minutes <= 50);
     assert.ok(food.spicy_level < 2);
@@ -147,6 +160,115 @@ async function testNoResultPathFallback() {
   assert.ok(response.questions.length > 0);
 }
 
+async function testAiRerankSelectsProvidedIds() {
+  const constraints: UserConstraints = {
+    time_left_minutes: 60,
+    budget_vnd: 80000,
+    avoid_spicy: true,
+    prefer_hot: true,
+  };
+  const candidates = await searchFoods(constraints);
+  const result = await rerankFoodsWithAi({
+    message: "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
+    constraints,
+    candidates,
+    llmClient: new FakeLlmClient(true, [
+      {
+        ranked_ids: ["food_10", "food_01", "food_08"],
+        recommendation_reasons: {
+          food_10: "Món nóng, no, phù hợp ngân sách.",
+          food_01: "Cơm gà quen thuộc buổi trưa.",
+          food_08: "Xôi nóng giao nhanh.",
+        },
+      },
+    ]),
+  });
+
+  assert.ok(result);
+  assert.equal(result.source, "openai");
+  assert.equal(result.recommendations.length, 3);
+  assert.equal(result.recommendations[0]?.id, "food_10");
+  assert.equal(result.recommendations[0]?.reason, "Món nóng, no, phù hợp ngân sách.");
+}
+
+async function testAiRerankInvalidIdsReturnsNull() {
+  const constraints: UserConstraints = {
+    time_left_minutes: 60,
+    budget_vnd: 80000,
+    avoid_spicy: true,
+    prefer_hot: true,
+  };
+  const candidates = await searchFoods(constraints);
+  const result = await rerankFoodsWithAi({
+    message: "test",
+    constraints,
+    candidates,
+    llmClient: new FakeLlmClient(true, [{ ranked_ids: ["food_does_not_exist"] }]),
+  });
+
+  assert.equal(result, null);
+}
+
+async function testSelectRecommendationsUsesRuleWhenLlmOff() {
+  const constraints: UserConstraints = {
+    time_left_minutes: 60,
+    budget_vnd: 80000,
+    avoid_spicy: true,
+    prefer_hot: true,
+  };
+  const candidates = await searchFoods(constraints);
+  const result = await selectRecommendations({
+    message: "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
+    constraints,
+    candidates,
+    llmClient: new FakeLlmClient(false),
+  });
+
+  assert.equal(result.source, "rule");
+  assert.equal(result.recommendations.length, 3);
+}
+
+async function testOrchestratorAiRerankIntegration() {
+  const response = await buildRecommendationResponse(
+    "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
+    {},
+    {},
+    {
+      llmClient: new FakeLlmClient(true, [
+        {
+          constraints: {
+            time_left_minutes: 60,
+            budget_vnd: 80000,
+            avoid_spicy: true,
+            prefer_hot: true,
+            meal_size: "unknown",
+            preferred_tags: [],
+          },
+          confidence: 0.95,
+          missing_fields: [],
+          clarifying_questions: [],
+        },
+        {
+          ranked_ids: ["food_08", "food_01", "food_10"],
+          recommendation_reasons: {
+            food_08: "AI chọn xôi nóng vì ETA ngắn.",
+          },
+        },
+        {
+          assistant_message: "Đây là 3 món mình chọn cho bạn.",
+          questions: [],
+          recommendation_reasons: {},
+        },
+      ]),
+    },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "ok");
+  assert.equal(response.recommendations[0]?.id, "food_08");
+  assert.equal(response.recommendations[0]?.reason, "AI chọn xôi nóng vì ETA ngắn.");
+}
+
 async function testMockedOpenAIExtractionAndAnswer() {
   const response = await buildRecommendationResponse(
     "Tôi còn 45 phút, muốn ăn món nóng dưới 70k, không cay.",
@@ -166,6 +288,12 @@ async function testMockedOpenAIExtractionAndAnswer() {
           confidence: 0.92,
           missing_fields: [],
           clarifying_questions: [],
+        },
+        {
+          ranked_ids: ["food_03", "food_08", "food_01"],
+          recommendation_reasons: {
+            food_03: "Giao nhanh, giá thấp và không cay.",
+          },
         },
         {
           assistant_message:
@@ -266,6 +394,70 @@ async function testTrackOrderIsOffTopic() {
   assert.deepEqual(response.constraints, {});
 }
 
+function testNormalizeChatHistory() {
+  const history = normalizeChatHistory([
+    { role: "user", content: "  chào bạn  " },
+    { role: "assistant", content: "Xin chào!" },
+    { role: "bot", content: "ignored" },
+    { role: "user", content: "" },
+  ]);
+
+  assert.equal(history.length, 2);
+  assert.equal(history[0]?.content, "chào bạn");
+  assert.equal(history[1]?.role, "assistant");
+}
+
+function testPrepareChatHistoryPrioritizesRecentTurns() {
+  const history: ChatHistoryMessage[] = Array.from({ length: 12 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `message-${index}`,
+  }));
+
+  const prepared = prepareChatHistoryForLlm(history);
+
+  assert.equal(prepared.recent_turns.length, 8);
+  assert.equal(prepared.older_turns.length, 4);
+  assert.equal(prepared.recent_turns.at(-1)?.content, "message-11");
+  assert.equal(prepared.recent_turns.at(-1)?.recency_rank, 12);
+  assert.equal(prepared.recent_turns[0]?.recency_rank, 5);
+  assert.ok(prepared.older_turns[0]?.content_summary.includes("message-0"));
+  assert.equal(prepared.older_turns[0]?.priority, "low");
+  assert.equal(prepared.recent_turns[0]?.priority, "high");
+}
+
+async function testCorrectionWithChatHistory() {
+  const previousConstraints: UserConstraints = {
+    time_left_minutes: 60,
+    budget_vnd: 80000,
+    avoid_spicy: false,
+    prefer_hot: true,
+    meal_size: "unknown",
+    preferred_tags: [],
+  };
+
+  const response = await buildRecommendationResponse(
+    "Chỉ còn 35 phút, không ăn cay.",
+    previousConstraints,
+    { isCorrection: true },
+    { llmClient: new FakeLlmClient(false) },
+    [
+      {
+        role: "user",
+        content: "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
+      },
+      {
+        role: "assistant",
+        content: "Mình gợi ý 3 món phù hợp dưới 80k, món nóng và không cay.",
+      },
+    ],
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "ok");
+  assert.equal(response.constraints.time_left_minutes, 35);
+  assert.equal(response.constraints.avoid_spicy, true);
+}
+
 async function testOpenAIInvalidJsonFallsBack() {
   const response = await buildRecommendationResponse(
     "Mình có 1 tiếng nghỉ, cần món nóng dưới 80k, không cay.",
@@ -274,6 +466,7 @@ async function testOpenAIInvalidJsonFallsBack() {
     {
       llmClient: new FakeLlmClient(true, [
         { invalid: "shape" },
+        { invalid: "rerank" },
         { invalid: "answer" },
       ]),
     },
@@ -295,6 +488,13 @@ await testGreetingWithRecommendations();
 await testOffTopicDoesNotRecommend();
 await testVagueFoodRequestIgnoresPreviousConstraints();
 await testTrackOrderIsOffTopic();
+testNormalizeChatHistory();
+testPrepareChatHistoryPrioritizesRecentTurns();
+await testCorrectionWithChatHistory();
+await testAiRerankSelectsProvidedIds();
+await testAiRerankInvalidIdsReturnsNull();
+await testSelectRecommendationsUsesRuleWhenLlmOff();
+await testOrchestratorAiRerankIntegration();
 await testMockedOpenAIExtractionAndAnswer();
 await testOpenAIInvalidJsonFallsBack();
 

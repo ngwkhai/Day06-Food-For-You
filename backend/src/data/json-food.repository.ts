@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { attachFoodImageUrl } from "../services/food-image.util.js";
 import type { UserConstraints } from "../types/constraint.js";
 import type { FoodItem } from "../types/food.js";
 import type { FoodRepository } from "./food.repository.js";
@@ -67,7 +68,7 @@ export class JsonFoodRepository implements FoodRepository {
       throw new Error("Food data must be an array");
     }
 
-    return foods;
+    return foods.map((food) => attachFoodImageUrl(food));
   }
 
   async searchFoodsByConstraints(

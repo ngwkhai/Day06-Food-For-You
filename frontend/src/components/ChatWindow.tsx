@@ -14,6 +14,8 @@ import {
   stopChatResponse,
   transcribeVoiceAudio
 } from "@/lib/api";
+import { buildChatHistory } from "@/lib/chat-history";
+import { CHAT_ASSISTANT_NAME, createSessionIntroMessage } from "@/lib/chat-intro";
 import { prepareChatRequest } from "@/lib/message-intent";
 import type { ChatMessage, ChatSession, UserConstraints } from "@/lib/types";
 
@@ -37,7 +39,7 @@ const quickActions = [
 ];
 
 const chatChips = [
-  { id: "suggest", label: "Gợi ý món", icon: "✦", prompt: "Gợi ý món ăn dưới 40K cho mình." },
+  { id: "suggest", label: "Gợi ý món", icon: "✦", prompt: "Gợi ý món ăn cho mình." },
   { id: "qa", label: "Hỏi đáp nhanh", icon: "?", prompt: "Bạn có thể giúp mình những gì?" },
   { id: "track", label: "Theo dõi đơn hàng", icon: "▣", prompt: "Theo dõi đơn hàng giúp mình." },
   { id: "history", label: "Lịch sử trò chuyện", icon: "↺" }
@@ -100,7 +102,7 @@ function HomeScreen({ onOpenChat }: { onOpenChat: () => void }) {
 
       <ClarificationBox />
 
-      <button className="bot-launcher" type="button" onClick={onOpenChat} aria-label="Mở trợ lý AI">
+      <button className="bot-launcher" type="button" onClick={onOpenChat} aria-label={`Mở ${CHAT_ASSISTANT_NAME}`}>
         <span className="bot-pulse bot-pulse-green" aria-hidden="true" />
         <span className="bot-pulse bot-pulse-red" aria-hidden="true" />
         <span className="bot-pulse bot-pulse-yellow" aria-hidden="true" />
@@ -286,6 +288,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
       content: trimmedPrompt,
       time: getCurrentTime()
     };
+    const history = buildChatHistory(activeSession.messages);
     const { constraints, useCorrect } = prepareChatRequest(trimmedPrompt, {
       constraints: activeSession.constraints,
       lastStatus: activeSession.lastStatus
@@ -310,7 +313,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     try {
       const response = await sendChatPrompt(trimmedPrompt, constraints, {
         signal: controller.signal,
-        useCorrect
+        useCorrect,
+        history
       });
 
       if (controller.signal.aborted || requestRunIdRef.current !== requestRunId) {
@@ -651,13 +655,15 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
         }
 
         const nextMessages = updater(session.messages);
+        const hadUserMessage = session.messages.some((message) => message.role === "user");
+        const hasUserMessage = nextMessages.some((message) => message.role === "user");
 
         return {
           ...session,
           title:
             nextMessages.length === 0
               ? "Cuộc trò chuyện mới"
-              : session.messages.length === 0 && titlePrompt
+              : !hadUserMessage && hasUserMessage && titlePrompt
               ? createSessionTitle(titlePrompt)
               : session.title,
           messages: nextMessages,
@@ -668,14 +674,14 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <section className="chat-screen" aria-label="Trò chuyện với trợ lý AI">
+    <section className="chat-screen" aria-label={`Trò chuyện với ${CHAT_ASSISTANT_NAME}`}>
       <header className="chat-topbar">
         <button className="chat-back" type="button" onClick={onBack} aria-label="Quay lại trang ưu đãi">
           ‹
         </button>
         <div className="chat-title">
           <Image src="/bot.png" alt="" width={42} height={42} />
-          <h1>Trợ lý AI</h1>
+          <h1>{CHAT_ASSISTANT_NAME}</h1>
         </div>
         <button className="new-chat-button" type="button" onClick={handleNewChat} aria-label="Tạo chat mới">
           +
@@ -694,7 +700,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
         <Image src="/bot.png" alt="" width={132} height={100} priority />
         <div>
           <h2>Xin chào! 👋</h2>
-          <p>Tôi có thể giúp gì cho bạn hôm nay?</p>
+          <p>{CHAT_ASSISTANT_NAME} có thể giúp gì cho bạn hôm nay?</p>
         </div>
       </section>
 
@@ -761,7 +767,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
         </div>
         <form className="chat-composer" onSubmit={handleSubmit}>
           <label className="sr-only" htmlFor="assistant-message">
-            Nhắn tin cho trợ lý
+            Nhắn tin cho {CHAT_ASSISTANT_NAME}
           </label>
           <input
             id="assistant-message"
@@ -771,7 +777,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
                 ? "Dang chuyen giong noi..."
                 : isListening
                 ? "Dang nghe..."
-                : "Nhan tin cho tro ly..."
+                : `Nhan tin cho ${CHAT_ASSISTANT_NAME}...`
             }
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -831,7 +837,16 @@ function AssistantMessage({
     <>
       <div className="chat-message-row assistant-row">
         <Image src="/bot.png" alt="" width={42} height={42} />
-        <div className="chat-bubble assistant-bubble">
+        <div
+          className={
+            message.kind === "intro"
+              ? "chat-bubble assistant-bubble assistant-bubble-intro"
+              : "chat-bubble assistant-bubble"
+          }
+        >
+          {message.kind === "intro" ? (
+            <span className="chat-system-label">{CHAT_ASSISTANT_NAME}</span>
+          ) : null}
           <p>
             {message.content}
             {message.isStreaming ? <span className="stream-cursor" aria-hidden="true" /> : null}
@@ -874,7 +889,7 @@ function TypingMessage() {
   return (
     <div className="chat-message-row assistant-row">
       <Image src="/bot.png" alt="" width={42} height={42} />
-      <div className="chat-bubble assistant-bubble typing-bubble" aria-label="Trợ lý đang trả lời">
+      <div className="chat-bubble assistant-bubble typing-bubble" aria-label={`${CHAT_ASSISTANT_NAME} đang trả lời`}>
         <span />
         <span />
         <span />
@@ -910,8 +925,17 @@ function SuggestionRow({
             key={item.id}
             style={{ "--accent": item.accent } as CSSProperties}
           >
-            <div className="chat-food-image" aria-hidden="true">
-              {item.image}
+            <div className="chat-food-image">
+              {item.imageUrl ? (
+                <img
+                  className="chat-food-photo"
+                  src={item.imageUrl}
+                  alt={item.name}
+                  loading="lazy"
+                />
+              ) : (
+                <span aria-hidden="true">{item.image}</span>
+              )}
             </div>
             <h3>{item.name}</h3>
             <p className="chat-food-restaurant">{item.restaurant}</p>
@@ -1024,7 +1048,7 @@ function createChatSession(): ChatSession {
     title: "Cuộc trò chuyện mới",
     createdAt: now,
     updatedAt: now,
-    messages: [],
+    messages: [createSessionIntroMessage()],
     constraints: {}
   };
 }
@@ -1034,10 +1058,12 @@ function createSessionTitle(prompt: string) {
 }
 
 function summarizeSession(session: ChatSession) {
-  const lastMessage = session.messages.at(-1);
+  const lastMessage = [...session.messages]
+    .reverse()
+    .find((message) => message.role === "user" || message.kind !== "intro");
 
   if (!lastMessage) {
-    return "Chưa có tin nhắn";
+    return `${CHAT_ASSISTANT_NAME} · Cuộc trò chuyện mới`;
   }
 
   return lastMessage.content.length > 42

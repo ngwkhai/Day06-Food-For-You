@@ -824,6 +824,28 @@ input:disabled {
   background: #ffffff;
 }
 
+.assistant-bubble-intro {
+  background: linear-gradient(180deg, #f4fffe 0%, #ffffff 72%);
+  border: 1px solid rgba(43, 184, 116, 0.18);
+}
+
+.assistant-bubble-intro p {
+  white-space: pre-line;
+}
+
+.chat-system-label {
+  display: inline-flex;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(43, 184, 116, 0.12);
+  color: #2a8f5c;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .user-bubble {
   background: #dff5ff;
 }
@@ -957,6 +979,15 @@ input:disabled {
     linear-gradient(135deg, rgba(255, 255, 255, 0.3), transparent),
     var(--accent);
   font-size: 38px;
+  overflow: hidden;
+}
+
+.chat-food-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
 }
 
 .chat-food-card h3 {

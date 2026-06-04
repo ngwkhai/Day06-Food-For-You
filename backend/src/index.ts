@@ -3,6 +3,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 
+import { getFoodImagesDir } from "./services/food-image.util.js";
 import { correctRouter } from "./routes/correct.route.js";
 import { docsRouter } from "./routes/docs.route.js";
 import { healthRouter } from "./routes/health.route.js";
@@ -14,6 +15,7 @@ const port = Number(process.env.PORT ?? 8000);
 
 app.use(cors());
 app.use(express.json());
+app.use("/images", express.static(getFoodImagesDir()));
 
 app.use("/health", healthRouter);
 app.use("/docs", docsRouter);

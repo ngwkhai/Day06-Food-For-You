@@ -13,6 +13,7 @@ export type FoodItem = {
   spicy_level: 0 | 1 | 2 | 3;
   tags: string[];
   trust_signal: string;
+  image_url?: string;
 };
 
 export type FoodRecommendation = {
@@ -26,4 +27,5 @@ export type FoodRecommendation = {
   risk: RiskLevel;
   tags: string[];
   trust_signal: string;
+  image_url?: string;
 };

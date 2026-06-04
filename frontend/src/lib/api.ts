@@ -4,6 +4,7 @@ import type {
   Category,
   ChatApiResponse,
   ChatFoodSuggestion,
+  ChatHistoryMessage,
   FoodDeal,
   FoodRecommendation,
   StopChatRequest,
@@ -143,6 +144,7 @@ export async function sendChatPrompt(
   options: {
     signal?: AbortSignal;
     useCorrect?: boolean;
+    history?: ChatHistoryMessage[];
   } = {}
 ): Promise<ChatApiResponse> {
   const endpoint = options.useCorrect ? "/api/correct" : "/api/recommend";
@@ -160,7 +162,8 @@ export async function sendChatPrompt(
       },
       body: JSON.stringify({
         message,
-        constraints
+        constraints,
+        history: options.history ?? []
       }),
       signal: requestSignal
     });
@@ -295,6 +298,7 @@ function normalizeSuggestions(
     reason: item.reason || item.trust_signal || "Phù hợp nhu cầu của bạn.",
     risk: item.risk || "medium",
     image: pickFoodEmoji(item.tags),
+    imageUrl: item.image_url?.trim() || undefined,
     accent: pickAccent(item.risk)
   }));
 }

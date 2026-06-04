@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import type { ApiResponse } from "../types/api.js";
+import { buildChatHistoryPayload } from "./chat-history.util.js";
+import type { ChatHistoryMessage } from "../types/chat.js";
 import type { UserConstraints } from "../types/constraint.js";
 import { openAIService, type LlmClient } from "./openai.service.js";
 
@@ -78,7 +80,9 @@ QUY TẮC CHUNG
 
 * Tuyệt đối không bịa món ăn, quán ăn, giá tiền, ETA, ưu đãi, trạng thái đơn hàng hoặc thông tin không tồn tại trong input.
 
-* Chỉ sử dụng dữ liệu được cung cấp trong user_message, constraints, recommendations, tracking_info và existing_questions.
+* Chỉ sử dụng dữ liệu được cung cấp trong user_message, recent_turns, older_turns, constraints, recommendations, tracking_info và existing_questions.
+* Thứ tự ưu tiên context: user_message > recent_turns (recency_rank cao hơn = gần hiện tại hơn) > constraints > older_turns.
+* Khi recent_turns và older_turns mâu thuẫn, bám recent_turns và user_message.
 
 * Không dùng các câu sáo rỗng như:
 
@@ -383,10 +387,12 @@ function buildAnswerPrompt(
   message: string,
   constraints: UserConstraints,
   response: ApiResponse,
+  history: ChatHistoryMessage[] = [],
 ): string {
   return JSON.stringify(
     {
       user_message: message,
+      ...buildChatHistoryPayload(history),
       status: response.status,
       constraints,
       recommendations: response.recommendations.map((recommendation) => ({
@@ -400,6 +406,7 @@ function buildAnswerPrompt(
         risk: recommendation.risk,
         tags: recommendation.tags,
         trust_signal: recommendation.trust_signal,
+        image_url: recommendation.image_url,
       })),
       existing_questions: response.questions,
       output_contract: {
@@ -418,6 +425,7 @@ export async function generateAssistantAnswer(
   message: string,
   response: ApiResponse,
   llmClient: LlmClient = openAIService,
+  history: ChatHistoryMessage[] = [],
 ): Promise<ApiResponse> {
   if (!llmClient.isConfigured()) {
     return {
@@ -434,6 +442,7 @@ export async function generateAssistantAnswer(
         message,
         response.constraints,
         response,
+        history,
       ),
     });
     const answer = answerSchema.parse(rawAnswer);

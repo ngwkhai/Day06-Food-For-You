@@ -142,6 +142,7 @@ function toRecommendation(
     risk,
     tags: food.tags,
     trust_signal: food.trust_signal,
+    image_url: food.image_url,
   };
 }
 

@@ -1,10 +1,12 @@
 import type { FoodRepository } from "../data/food.repository.js";
 import type { ApiResponse } from "../types/api.js";
+import type { ChatHistoryMessage } from "../types/chat.js";
 import type { UserConstraints } from "../types/constraint.js";
 import type { FoodRecommendation } from "../types/food.js";
 import { generateAssistantAnswer } from "./answer-generation.service.js";
 import { extractConstraints } from "./constraint-extraction.service.js";
 import { searchFoods } from "./food-search.service.js";
+import { selectRecommendations } from "./food-rerank.service.js";
 import {
   detectMessageIntent,
   getResponseConstraints,
@@ -13,7 +15,6 @@ import {
   type MessageIntent,
 } from "./message-intent.service.js";
 import type { LlmClient } from "./openai.service.js";
-import { recommendFoods } from "./recommendation.service.js";
 import { buildErrorResponse } from "./response.service.js";
 
 type OrchestratorOptions = {
@@ -127,6 +128,7 @@ function buildAssistantMessage(
 async function buildBaseResponse(
   message: string,
   previousConstraints: UserConstraints,
+  history: ChatHistoryMessage[],
   options: OrchestratorOptions,
   dependencies: OrchestratorDependencies,
 ): Promise<ApiResponse> {
@@ -146,7 +148,7 @@ async function buildBaseResponse(
     message,
     previousConstraints,
     dependencies.llmClient,
-    { mergePrevious },
+    { mergePrevious, history },
   );
   const responseConstraints = getResponseConstraints(
     intent,
@@ -178,7 +180,14 @@ async function buildBaseResponse(
     responseConstraints,
     dependencies.repository,
   );
-  const recommendations = recommendFoods(candidateFoods, responseConstraints);
+  const { recommendations } = await selectRecommendations({
+    message,
+    history,
+    constraints: responseConstraints,
+    candidates: candidateFoods,
+    llmClient: dependencies.llmClient,
+    isCorrection: options.isCorrection,
+  });
 
   if (recommendations.length === 0) {
     return {
@@ -210,11 +219,13 @@ export async function buildRecommendationResponse(
   previousConstraints: UserConstraints = {},
   options: OrchestratorOptions = {},
   dependencies: OrchestratorDependencies = {},
+  history: ChatHistoryMessage[] = [],
 ): Promise<ApiResponse> {
   try {
     const baseResponse = await buildBaseResponse(
       message,
       previousConstraints,
+      history,
       options,
       dependencies,
     );
@@ -223,6 +234,7 @@ export async function buildRecommendationResponse(
       message,
       baseResponse,
       dependencies.llmClient,
+      history,
     );
   } catch (error) {
     console.error("Failed to build recommendation response", error);

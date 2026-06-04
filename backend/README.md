@@ -24,6 +24,15 @@ OPENAI_TRANSCRIPTION_MODEL=whisper-1
 
 `OPENAI_TRANSCRIPTION_MODEL` defaults to `whisper-1`.
 
+Food selection uses **AI rerank** (grounded in filtered candidates) when `FOOD_RERANK_ENABLED=true` and `OPENAI_API_KEY` is set. On failure, it falls back to rule-based scoring in `recommendation.service.ts`.
+
+Optional:
+
+```env
+FOOD_RERANK_ENABLED=true
+FOOD_RERANK_CANDIDATE_POOL_SIZE=12
+```
+
 ## API docs (Swagger UI)
 
 Mở trình duyệt tại:

@@ -1,3 +1,4 @@
+import type { ChatHistoryMessage } from "./chat.js";
 import type { UserConstraints } from "./constraint.js";
 import type { FoodRecommendation } from "./food.js";
 
@@ -6,6 +7,7 @@ export type ApiStatus = "ok" | "need_clarification" | "no_result" | "error";
 export type RecommendRequest = {
   message: string;
   constraints?: UserConstraints;
+  history?: ChatHistoryMessage[];
 };
 
 export type CorrectRequest = RecommendRequest;
