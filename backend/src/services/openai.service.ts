@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 
 type JsonCompletionOptions = {
   systemPrompt: string;
@@ -7,6 +8,12 @@ type JsonCompletionOptions = {
 };
 
 type TextCompletionOptions = JsonCompletionOptions;
+
+type AudioTranscriptionOptions = {
+  audioBuffer: Buffer;
+  mimeType: string;
+  filename?: string;
+};
 
 export type LlmClient = {
   isConfigured(): boolean;
@@ -24,6 +31,10 @@ export class OpenAIService implements LlmClient {
 
   private getModel(): string {
     return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  }
+
+  private getTranscriptionModel(): string {
+    return process.env.OPENAI_TRANSCRIPTION_MODEL ?? "whisper-1";
   }
 
   private getClient(): OpenAI | undefined {
@@ -63,6 +74,29 @@ export class OpenAIService implements LlmClient {
 
   async createTextCompletion(options: TextCompletionOptions): Promise<string> {
     return this.createChatCompletion(options);
+  }
+
+  async transcribeAudio(options: AudioTranscriptionOptions): Promise<string> {
+    const client = this.getClient();
+    if (!client) {
+      throw new Error("OpenAI client is not configured");
+    }
+
+    const file = await toFile(
+      options.audioBuffer,
+      options.filename ?? "voice-message.webm",
+      {
+        type: options.mimeType,
+      },
+    );
+    const transcript = await client.audio.transcriptions.create({
+      file,
+      model: this.getTranscriptionModel(),
+      language: "vi",
+      response_format: "json",
+    });
+
+    return transcript.text.trim();
   }
 
   private async createChatCompletion(

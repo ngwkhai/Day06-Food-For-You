@@ -207,6 +207,55 @@ export async function checkBackendHealth(): Promise<boolean> {
   }
 }
 
+export async function transcribeVoiceAudio(
+  audio: Blob,
+  options: {
+    signal?: AbortSignal;
+  } = {}
+): Promise<{ status: "ok" | "error"; text: string; message?: string }> {
+  const timeoutController = new AbortController();
+  const requestSignal = options.signal ?? timeoutController.signal;
+  const timeout = options.signal
+    ? undefined
+    : window.setTimeout(() => timeoutController.abort(), 30000);
+
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/transcribe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": audio.type || "audio/webm"
+      },
+      body: audio,
+      signal: requestSignal
+    });
+    const data = (await response.json()) as {
+      status?: "ok" | "error";
+      text?: string;
+      message?: string;
+    };
+
+    return {
+      status: response.ok && data.status === "ok" ? "ok" : "error",
+      text: data.text?.trim() ?? "",
+      message: data.message
+    };
+  } catch (error) {
+    if (requestSignal.aborted || isAbortError(error)) {
+      throw error;
+    }
+
+    return {
+      status: "error",
+      text: "",
+      message: "Could not connect to transcription service"
+    };
+  } finally {
+    if (timeout) {
+      window.clearTimeout(timeout);
+    }
+  }
+}
+
 export function stopChatResponse(_request: StopChatRequest): void {
   // Client-side abort only. Backend contract has no stop endpoint.
 }

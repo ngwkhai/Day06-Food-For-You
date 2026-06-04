@@ -1131,6 +1131,13 @@ input:disabled {
   font-size: 22px;
 }
 
+.mic-button-active {
+  background: #19bda9;
+  color: #ffffff;
+  box-shadow: 0 0 0 7px rgba(25, 189, 169, 0.14);
+  animation: micPulse 1.25s ease-in-out infinite;
+}
+
 .send-button {
   width: 50px;
   height: 50px;
@@ -1330,5 +1337,16 @@ input:disabled {
   .suggestion-row {
     grid-auto-columns: 116px;
     padding-left: 0;
+  }
+}
+
+@keyframes micPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.08);
   }
 }

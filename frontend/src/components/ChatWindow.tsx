@@ -11,7 +11,8 @@ import {
   categories,
   foodDeals,
   sendChatPrompt,
-  stopChatResponse
+  stopChatResponse,
+  transcribeVoiceAudio
 } from "@/lib/api";
 import { prepareChatRequest } from "@/lib/message-intent";
 import type { ChatMessage, ChatSession, UserConstraints } from "@/lib/types";
@@ -124,11 +125,17 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(
     () => new Set()
   );
   const requestControllerRef = useRef<AbortController | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const shouldTranscribeRecordingRef = useRef(false);
   const requestRunIdRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
   const streamRunIdRef = useRef(0);
@@ -146,13 +153,19 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions]
   );
-  const isBusy = isSending || isStreaming;
+  const isChatBusy = isSending || isStreaming;
+  const isBusy = isChatBusy || isTranscribing;
 
   function clearStreamTimer() {
     if (streamTimerRef.current) {
       window.clearInterval(streamTimerRef.current);
       streamTimerRef.current = null;
     }
+  }
+
+  function stopMediaStream() {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
   }
 
   useEffect(() => {
@@ -162,6 +175,11 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     return () => {
       requestControllerRef.current?.abort();
+      shouldTranscribeRecordingRef.current = false;
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      stopMediaStream();
       clearStreamTimer();
     };
   }, []);
@@ -169,7 +187,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   async function handleSendPrompt(nextPrompt: string) {
     const trimmedPrompt = nextPrompt.trim();
 
-    if (!trimmedPrompt || isBusy) {
+    if (!trimmedPrompt || isChatBusy) {
       return;
     }
 
@@ -298,6 +316,13 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     const pendingTurn = pendingTurnRef.current;
     const streamingMessageId = streamingMessageIdRef.current;
 
+    shouldTranscribeRecordingRef.current = false;
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    stopMediaStream();
     requestRunIdRef.current += 1;
     streamRunIdRef.current += 1;
     requestControllerRef.current?.abort();
@@ -305,6 +330,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     clearStreamTimer();
     setIsSending(false);
     setIsStreaming(false);
+    setIsListening(false);
+    setIsTranscribing(false);
     streamingMessageIdRef.current = null;
     pendingTurnRef.current = null;
 
@@ -343,6 +370,134 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void handleSendPrompt(prompt);
+  }
+
+  function handleMicClick() {
+    if (isListening) {
+      shouldTranscribeRecordingRef.current = true;
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+
+    if (isBusy) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      typeAssistantMessage(activeSession.id, {
+        content:
+          "Trinh duyet hien tai chua ho tro ghi am. Ban co the thu Chrome hoac Edge nhe.",
+        isFallback: true
+      });
+      return;
+    }
+
+    void startVoiceRecording();
+  }
+
+  async function startVoiceRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getSupportedAudioMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      shouldTranscribeRecordingRef.current = true;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        shouldTranscribeRecordingRef.current = false;
+        audioChunksRef.current = [];
+        stopMediaStream();
+        setIsListening(false);
+        setIsTranscribing(false);
+        typeAssistantMessage(activeSession.id, {
+          content: "Minh chua ghi am duoc. Ban thu bam mic va noi lai nhe.",
+          isFallback: true
+        });
+      };
+
+      recorder.onstop = () => {
+        const shouldTranscribe = shouldTranscribeRecordingRef.current;
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm",
+        });
+
+        shouldTranscribeRecordingRef.current = false;
+        mediaRecorderRef.current = null;
+        audioChunksRef.current = [];
+        stopMediaStream();
+        setIsListening(false);
+
+        if (shouldTranscribe) {
+          void transcribeAndSendAudio(audioBlob);
+        }
+      };
+
+      recorder.start();
+      setPrompt("Dang nghe...");
+      setIsListening(true);
+    } catch {
+      shouldTranscribeRecordingRef.current = false;
+      stopMediaStream();
+      setIsListening(false);
+      typeAssistantMessage(activeSession.id, {
+        content: "Minh khong mo duoc microphone. Hay kiem tra quyen mic cua trinh duyet nhe.",
+        isFallback: true
+      });
+    }
+  }
+
+  async function transcribeAndSendAudio(audioBlob: Blob) {
+    if (audioBlob.size === 0) {
+      setPrompt("");
+      typeAssistantMessage(activeSession.id, {
+        content: "Minh chua nhan duoc am thanh. Ban thu noi lai gan mic hon nhe.",
+        isFallback: true
+      });
+      return;
+    }
+
+    setPrompt("Dang chuyen giong noi thanh van ban...");
+    setIsTranscribing(true);
+
+    try {
+      const response = await transcribeVoiceAudio(audioBlob);
+
+      if (response.status !== "ok" || !response.text) {
+        setPrompt("");
+        typeAssistantMessage(activeSession.id, {
+          content:
+            response.message ||
+            "Backend chua chuyen duoc giong noi thanh van ban. Ban thu lai sau nhe.",
+          isFallback: true
+        });
+        return;
+      }
+
+      setPrompt(response.text);
+      void handleSendPrompt(response.text);
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setPrompt("");
+        typeAssistantMessage(activeSession.id, {
+          content: "Minh chua ket noi duoc backend transcribe. Ban kiem tra backend va OPENAI_API_KEY nhe.",
+          isFallback: true
+        });
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
   }
 
   function toggleSuggestionSelection(suggestionId: string) {
@@ -507,12 +662,25 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
           <input
             id="assistant-message"
             type="text"
-            placeholder="Nhắn tin cho trợ lý..."
+            placeholder={
+              isTranscribing
+                ? "Dang chuyen giong noi..."
+                : isListening
+                ? "Dang nghe..."
+                : "Nhan tin cho tro ly..."
+            }
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             disabled={isBusy}
           />
-          <button className="mic-button" type="button" aria-label="Ghi âm" disabled={isBusy}>
+          <button
+            className={isListening ? "mic-button mic-button-active" : "mic-button"}
+            type="button"
+            aria-label={isListening ? "Dung ghi am" : "Ghi am"}
+            aria-pressed={isListening}
+            onClick={handleMicClick}
+            disabled={isBusy}
+          >
             <MicIcon />
           </button>
           {isBusy ? (
@@ -783,6 +951,19 @@ function getCurrentTime() {
 
 function createId() {
   return globalThis.crypto?.randomUUID() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function getSupportedAudioMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") {
+    return undefined;
+  }
+
+  return [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/wav",
+  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 }
 
 function isAbortError(error: unknown) {

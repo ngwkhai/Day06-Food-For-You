@@ -7,6 +7,7 @@ import { correctRouter } from "./routes/correct.route.js";
 import { docsRouter } from "./routes/docs.route.js";
 import { healthRouter } from "./routes/health.route.js";
 import { recommendRouter } from "./routes/recommend.route.js";
+import { transcribeRouter } from "./routes/transcribe.route.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 8000);
@@ -18,6 +19,7 @@ app.use("/health", healthRouter);
 app.use("/docs", docsRouter);
 app.use("/api/recommend", recommendRouter);
 app.use("/api/correct", correctRouter);
+app.use("/api/transcribe", transcribeRouter);
 
 app.listen(port, () => {
   console.log(`Backend is running on http://localhost:${port}`);

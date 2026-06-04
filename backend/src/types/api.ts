@@ -22,3 +22,9 @@ export type HealthResponse = {
   status: "ok";
   message: string;
 };
+
+export type TranscribeResponse = {
+  status: "ok" | "error";
+  text: string;
+  message?: string;
+};
