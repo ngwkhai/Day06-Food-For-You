@@ -74,3 +74,10 @@ export type ChatApiResponse = {
   suggestions?: ChatFoodSuggestion[];
   isFallback?: boolean;
 };
+
+export type StopChatRequest = {
+  sessionId: string;
+  requestId: string;
+  userMessageId?: string;
+  prompt?: string;
+};
