@@ -3,7 +3,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 
-import { getFoodImagesDir } from "./services/food-image.util.js";
+import { getFoodImagesDir, getFoodImagesStartupStatus } from "./services/food-image.util.js";
 import { correctRouter } from "./routes/correct.route.js";
 import { docsRouter } from "./routes/docs.route.js";
 import { healthRouter } from "./routes/health.route.js";
@@ -24,6 +24,23 @@ app.use("/api/correct", correctRouter);
 app.use("/api/transcribe", transcribeRouter);
 
 app.listen(port, () => {
+  const imageStatus = getFoodImagesStartupStatus();
+
   console.log(`Backend is running on http://localhost:${port}`);
   console.log(`API docs available at http://localhost:${port}/docs`);
+  console.log(`Public API base URL for images: ${imageStatus.publicBaseUrl}`);
+
+  if (!imageStatus.exists || imageStatus.fileCount === 0) {
+    console.warn(
+      "Food images directory is missing or empty. Set FOOD_IMAGES_DIR and deploy data/images.",
+      {
+        imagesDir: imageStatus.imagesDir,
+        tried: imageStatus.candidates,
+      },
+    );
+  } else {
+    console.log(
+      `Serving ${imageStatus.fileCount} food images from ${imageStatus.imagesDir}`,
+    );
+  }
 });
