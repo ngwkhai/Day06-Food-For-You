@@ -883,6 +883,13 @@ input:disabled {
   padding: 8px 8px 10px;
 }
 
+.chat-food-card-selected {
+  outline: 2px solid rgba(43, 184, 116, 0.58);
+  box-shadow:
+    0 10px 24px rgba(36, 48, 55, 0.11),
+    0 0 0 4px rgba(43, 184, 116, 0.1);
+}
+
 .chat-food-image {
   height: 62px;
   display: grid;
@@ -931,7 +938,7 @@ input:disabled {
   font-weight: 900;
 }
 
-.chat-food-card button {
+.chat-food-card .food-add-button {
   position: absolute;
   right: 8px;
   bottom: 8px;
@@ -944,6 +951,26 @@ input:disabled {
   color: #188fb0;
   font-size: 22px;
   line-height: 1;
+}
+
+.chat-food-card .food-add-button-selected {
+  background: #32c676;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 1000;
+  box-shadow: 0 6px 12px rgba(44, 186, 111, 0.28);
+}
+
+.selected-cart-icon {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: #ffffff;
+  box-shadow: 0 5px 12px rgba(35, 45, 52, 0.16);
 }
 
 .more-card {

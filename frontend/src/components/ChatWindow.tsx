@@ -122,6 +122,9 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   const [isSending, setIsSending] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const requestControllerRef = useRef<AbortController | null>(null);
   const requestRunIdRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
@@ -339,6 +342,22 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     void handleSendPrompt(prompt);
   }
 
+  function toggleSuggestionSelection(suggestionId: string) {
+    const scopedSuggestionId = `${activeSession.id}:${suggestionId}`;
+
+    setSelectedSuggestionIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      if (nextIds.has(scopedSuggestionId)) {
+        nextIds.delete(scopedSuggestionId);
+      } else {
+        nextIds.add(scopedSuggestionId);
+      }
+
+      return nextIds;
+    });
+  }
+
   function updateSessionState(
     sessionId: string,
     constraints: UserConstraints,
@@ -436,7 +455,13 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
         {activeSession.messages.length === 0 ? <EmptyChatState /> : null}
         {activeSession.messages.map((message) =>
           message.role === "assistant" ? (
-            <AssistantMessage key={message.id} message={message} />
+            <AssistantMessage
+              key={message.id}
+              message={message}
+              selectedSuggestionIds={selectedSuggestionIds}
+              sessionId={activeSession.id}
+              onToggleSuggestion={toggleSuggestionSelection}
+            />
           ) : (
             <UserMessage key={message.id} message={message} />
           )
@@ -516,7 +541,17 @@ function EmptyChatState() {
   );
 }
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
+function AssistantMessage({
+  message,
+  selectedSuggestionIds,
+  sessionId,
+  onToggleSuggestion
+}: {
+  message: ChatMessage;
+  selectedSuggestionIds: Set<string>;
+  sessionId: string;
+  onToggleSuggestion: (suggestionId: string) => void;
+}) {
   return (
     <>
       <div className="chat-message-row assistant-row">
@@ -538,7 +573,12 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
         </div>
       </div>
       {message.suggestions && !message.isStreaming ? (
-        <SuggestionRow suggestions={message.suggestions} />
+        <SuggestionRow
+          suggestions={message.suggestions}
+          selectedSuggestionIds={selectedSuggestionIds}
+          sessionId={sessionId}
+          onToggleSuggestion={onToggleSuggestion}
+        />
       ) : null}
     </>
   );
@@ -568,35 +608,65 @@ function TypingMessage() {
   );
 }
 
-function SuggestionRow({ suggestions }: { suggestions: ChatMessage["suggestions"] }) {
+function SuggestionRow({
+  suggestions,
+  selectedSuggestionIds,
+  sessionId,
+  onToggleSuggestion
+}: {
+  suggestions: ChatMessage["suggestions"];
+  selectedSuggestionIds: Set<string>;
+  sessionId: string;
+  onToggleSuggestion: (suggestionId: string) => void;
+}) {
   if (!suggestions) {
     return null;
   }
 
   return (
     <div className="suggestion-row" aria-label="Món ăn gợi ý">
-      {suggestions.map((item) => (
-        <article
-          className="chat-food-card"
-          key={item.id}
-          style={{ "--accent": item.accent } as CSSProperties}
-        >
-          <div className="chat-food-image" aria-hidden="true">
-            {item.image}
-          </div>
-          <h3>{item.name}</h3>
-          <p className="chat-food-restaurant">{item.restaurant}</p>
-          <p className="chat-food-reason">{item.reason}</p>
-          <p>
-            <strong>{item.price}</strong>
-            <span> · {item.time}</span>
-            <span> · {item.risk === "low" ? "An toàn" : item.risk === "high" ? "Rủi ro cao" : "Khá gấp"}</span>
-          </p>
-          <button type="button" aria-label={`Thêm ${item.name}`}>
-            +
-          </button>
-        </article>
-      ))}
+      {suggestions.map((item) => {
+        const scopedSuggestionId = `${sessionId}:${item.id}`;
+        const isSelected = selectedSuggestionIds.has(scopedSuggestionId);
+
+        return (
+          <article
+            className={isSelected ? "chat-food-card chat-food-card-selected" : "chat-food-card"}
+            key={item.id}
+            style={{ "--accent": item.accent } as CSSProperties}
+          >
+            <div className="chat-food-image" aria-hidden="true">
+              {item.image}
+            </div>
+            <h3>{item.name}</h3>
+            <p className="chat-food-restaurant">{item.restaurant}</p>
+            <p className="chat-food-reason">{item.reason}</p>
+            <p>
+              <strong>{item.price}</strong>
+              <span> · {item.time}</span>
+              <span> · {item.risk === "low" ? "An toàn" : item.risk === "high" ? "Rủi ro cao" : "Khá gấp"}</span>
+            </p>
+            {isSelected ? (
+              <Image
+                className="selected-cart-icon"
+                src="/cart.jpg"
+                alt=""
+                width={24}
+                height={24}
+              />
+            ) : null}
+            <button
+              className={isSelected ? "food-add-button food-add-button-selected" : "food-add-button"}
+              type="button"
+              aria-label={isSelected ? `${item.name} đã chọn` : `Thêm ${item.name}`}
+              aria-pressed={isSelected}
+              onClick={() => onToggleSuggestion(item.id)}
+            >
+              {isSelected ? "✓" : "+"}
+            </button>
+          </article>
+        );
+      })}
       <button className="more-card" type="button">
         <span aria-hidden="true">▦</span>
         Xem thêm
