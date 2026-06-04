@@ -4,7 +4,8 @@ import type {
   ChatApiResponse,
   ChatFoodSuggestion,
   ChatHistoryItem,
-  FoodDeal
+  FoodDeal,
+  StopChatRequest
 } from "./types";
 
 export const categories: Category[] = [
@@ -191,6 +192,23 @@ export async function sendChatPrompt(
     if (timeout) {
       window.clearTimeout(timeout);
     }
+  }
+}
+
+export async function stopChatResponse(request: StopChatRequest): Promise<void> {
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+  try {
+    await fetch(`${apiBaseUrl}/api/recommend/stop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(request),
+      keepalive: true
+    });
+  } catch {
+    // Stop is best-effort: the UI must stop immediately even if backend is unavailable.
   }
 }
 

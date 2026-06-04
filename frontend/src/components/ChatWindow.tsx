@@ -11,7 +11,8 @@ import {
   categories,
   chatFoodSuggestions,
   foodDeals,
-  sendChatPrompt
+  sendChatPrompt,
+  stopChatResponse
 } from "@/lib/api";
 import type { ChatHistoryItem, ChatMessage, ChatSession } from "@/lib/types";
 
@@ -128,6 +129,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   const streamingMessageIdRef = useRef<string | null>(null);
   const pendingTurnRef = useRef<{
     sessionId: string;
+    requestId: string;
     userMessageId: string;
     prompt: string;
   } | null>(null);
@@ -177,11 +179,13 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     }));
     const controller = new AbortController();
     const requestRunId = requestRunIdRef.current + 1;
+    const requestId = createId();
 
     requestRunIdRef.current = requestRunId;
     lastPromptRef.current = trimmedPrompt;
     pendingTurnRef.current = {
       sessionId: activeSession.id,
+      requestId,
       userMessageId: userMessage.id,
       prompt: trimmedPrompt
     };
@@ -280,8 +284,6 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
 
   function handleStop() {
     const pendingTurn = pendingTurnRef.current;
-    const pendingSessionId = pendingTurn?.sessionId ?? activeSession.id;
-    const pendingUserMessageId = pendingTurn?.userMessageId ?? null;
     const streamingMessageId = streamingMessageIdRef.current;
 
     requestRunIdRef.current += 1;
@@ -291,33 +293,23 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     clearStreamTimer();
     setIsSending(false);
     setIsStreaming(false);
-    setPrompt(pendingTurn?.prompt ?? lastPromptRef.current);
     streamingMessageIdRef.current = null;
     pendingTurnRef.current = null;
 
-    setSessions((currentSessions) =>
-      currentSessions.map((session) => {
-        if (session.id !== pendingSessionId) {
-          return session;
-        }
+    if (streamingMessageId) {
+      updateSessionMessages(pendingTurn?.sessionId ?? activeSession.id, (messages) =>
+        messages.filter((message) => message.id !== streamingMessageId)
+      );
+    }
 
-        const fallbackUserMessageId =
-          pendingUserMessageId ??
-          [...session.messages].reverse().find((message) => message.role === "user")?.id ??
-          null;
-        const nextMessages = session.messages.filter(
-          (message) =>
-            message.id !== streamingMessageId && message.id !== fallbackUserMessageId
-        );
-
-        return {
-          ...session,
-          title: nextMessages.length === 0 ? "Cuộc trò chuyện mới" : session.title,
-          messages: nextMessages,
-          updatedAt: new Date().toISOString()
-        };
-      })
-    );
+    if (pendingTurn) {
+      void stopChatResponse({
+        sessionId: pendingTurn.sessionId,
+        requestId: pendingTurn.requestId,
+        userMessageId: pendingTurn.userMessageId,
+        prompt: pendingTurn.prompt
+      });
+    }
   }
 
   function handleNewChat() {
