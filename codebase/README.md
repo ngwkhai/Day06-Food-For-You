@@ -51,7 +51,7 @@ Tạo file `backend/.env`:
 PORT=8000
 DATA_FILE_PATH=../data/mock_foods.json
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o
 LLM_TIMEOUT_MS=10000
 ```
 
@@ -107,11 +107,6 @@ Frontend chạy tại:
 http://localhost:3000
 ```
 
-Nếu port `3000` đang được dùng, Next.js có thể tự chuyển sang `3001`. Để quay lại `3000`, tắt process cũ theo PID mà terminal báo, ví dụ:
-
-```powershell
-taskkill /PID 12516 /F
-```
 
 Sau đó chạy lại frontend.
 
@@ -178,7 +173,7 @@ Tính năng frontend:
 - Model mặc định:
 
 ```env
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o
 ```
 
 Backend dùng AI để:
