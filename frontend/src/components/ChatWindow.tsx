@@ -18,6 +18,9 @@ import { prepareChatRequest } from "@/lib/message-intent";
 import type { ChatMessage, ChatSession, UserConstraints } from "@/lib/types";
 
 const TYPEWRITER_DELAY_MS = 18;
+const SILENCE_AUTO_STOP_MS = 3000;
+const SILENCE_VOLUME_THRESHOLD = 0.05;
+const MAX_RECORDING_MS = 15000;
 
 const navItems = [
   { id: "home", label: "Trang chủ", icon: "⌂", active: true },
@@ -136,6 +139,10 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const shouldTranscribeRecordingRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const silenceAnimationFrameRef = useRef<number | null>(null);
+  const silenceStartedAtRef = useRef<number | null>(null);
+  const maxRecordingTimeoutRef = useRef<number | null>(null);
   const requestRunIdRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
   const streamRunIdRef = useRef(0);
@@ -168,6 +175,86 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     mediaStreamRef.current = null;
   }
 
+  function stopSilenceDetection() {
+    if (silenceAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(silenceAnimationFrameRef.current);
+      silenceAnimationFrameRef.current = null;
+    }
+
+    silenceStartedAtRef.current = null;
+
+    const audioContext = audioContextRef.current;
+    audioContextRef.current = null;
+
+    if (audioContext && audioContext.state !== "closed") {
+      void audioContext.close().catch(() => undefined);
+    }
+  }
+
+  function clearMaxRecordingTimeout() {
+    if (maxRecordingTimeoutRef.current !== null) {
+      window.clearTimeout(maxRecordingTimeoutRef.current);
+      maxRecordingTimeoutRef.current = null;
+    }
+  }
+
+  function startSilenceDetection(stream: MediaStream) {
+    stopSilenceDetection();
+
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (window as Window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (!AudioContextConstructor) {
+      return;
+    }
+
+    const audioContext = new AudioContextConstructor();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+
+    analyser.fftSize = 2048;
+    const samples = new Uint8Array(analyser.fftSize);
+
+    source.connect(analyser);
+    audioContextRef.current = audioContext;
+    void audioContext.resume().catch(() => undefined);
+
+    const checkSilence = () => {
+      if (mediaRecorderRef.current?.state !== "recording") {
+        return;
+      }
+
+      analyser.getByteTimeDomainData(samples);
+
+      let sum = 0;
+      for (let index = 0; index < samples.length; index += 1) {
+        const centeredSample = (samples[index] - 128) / 128;
+        sum += centeredSample * centeredSample;
+      }
+
+      const volume = Math.sqrt(sum / samples.length);
+      const now = performance.now();
+
+      if (volume < SILENCE_VOLUME_THRESHOLD) {
+        silenceStartedAtRef.current ??= now;
+
+        if (now - silenceStartedAtRef.current >= SILENCE_AUTO_STOP_MS) {
+          shouldTranscribeRecordingRef.current = true;
+          mediaRecorderRef.current?.stop();
+          return;
+        }
+      } else {
+        silenceStartedAtRef.current = null;
+      }
+
+      silenceAnimationFrameRef.current = window.requestAnimationFrame(checkSilence);
+    };
+
+    silenceAnimationFrameRef.current = window.requestAnimationFrame(checkSilence);
+  }
+
   useEffect(() => {
     threadRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [activeSession.messages, isBusy]);
@@ -179,6 +266,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
       if (mediaRecorderRef.current?.state === "recording") {
         mediaRecorderRef.current.stop();
       }
+      clearMaxRecordingTimeout();
+      stopSilenceDetection();
       stopMediaStream();
       clearStreamTimer();
     };
@@ -322,6 +411,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     }
     mediaRecorderRef.current = null;
     audioChunksRef.current = [];
+    clearMaxRecordingTimeout();
+    stopSilenceDetection();
     stopMediaStream();
     requestRunIdRef.current += 1;
     streamRunIdRef.current += 1;
@@ -418,6 +509,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
       recorder.onerror = () => {
         shouldTranscribeRecordingRef.current = false;
         audioChunksRef.current = [];
+        clearMaxRecordingTimeout();
+        stopSilenceDetection();
         stopMediaStream();
         setIsListening(false);
         setIsTranscribing(false);
@@ -436,6 +529,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
         shouldTranscribeRecordingRef.current = false;
         mediaRecorderRef.current = null;
         audioChunksRef.current = [];
+        clearMaxRecordingTimeout();
+        stopSilenceDetection();
         stopMediaStream();
         setIsListening(false);
 
@@ -445,10 +540,19 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
       };
 
       recorder.start();
+      maxRecordingTimeoutRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") {
+          shouldTranscribeRecordingRef.current = true;
+          mediaRecorderRef.current.stop();
+        }
+      }, MAX_RECORDING_MS);
+      startSilenceDetection(stream);
       setPrompt("Dang nghe...");
       setIsListening(true);
     } catch {
       shouldTranscribeRecordingRef.current = false;
+      clearMaxRecordingTimeout();
+      stopSilenceDetection();
       stopMediaStream();
       setIsListening(false);
       typeAssistantMessage(activeSession.id, {
