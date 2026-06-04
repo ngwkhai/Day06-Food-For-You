@@ -97,6 +97,9 @@ function HomeScreen({ onOpenChat }: { onOpenChat: () => void }) {
       <ClarificationBox />
 
       <button className="bot-launcher" type="button" onClick={onOpenChat} aria-label="Mở trợ lý AI">
+        <span className="bot-pulse bot-pulse-green" aria-hidden="true" />
+        <span className="bot-pulse bot-pulse-red" aria-hidden="true" />
+        <span className="bot-pulse bot-pulse-yellow" aria-hidden="true" />
         <Image src="/bot.png" alt="" width={70} height={70} />
       </button>
 

@@ -538,13 +538,71 @@ input:disabled {
   box-shadow:
     0 16px 34px rgba(20, 108, 125, 0.22),
     0 0 0 8px rgba(139, 238, 239, 0.22);
+  isolation: isolate;
+  animation: botFloat 2.6s ease-in-out infinite;
 }
 
 .bot-launcher img {
+  position: relative;
+  z-index: 2;
   width: 86%;
   height: 86%;
   object-fit: cover;
   object-position: center;
+}
+
+.bot-pulse {
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: botPulseRing 2.7s ease-out infinite;
+}
+
+.bot-pulse-green {
+  border: 2px solid rgba(48, 216, 196, 0.72);
+  background: rgba(93, 238, 218, 0.14);
+  animation-delay: 0s;
+}
+
+.bot-pulse-red {
+  border: 2px solid rgba(255, 99, 112, 0.62);
+  background: rgba(255, 111, 126, 0.11);
+  animation-delay: 0.9s;
+}
+
+.bot-pulse-yellow {
+  border: 2px solid rgba(255, 205, 58, 0.72);
+  background: rgba(255, 217, 77, 0.13);
+  animation-delay: 1.8s;
+}
+
+@keyframes botPulseRing {
+  0% {
+    transform: scale(0.86);
+    opacity: 0.72;
+  }
+
+  68% {
+    opacity: 0.16;
+  }
+
+  100% {
+    transform: scale(1.72);
+    opacity: 0;
+  }
+}
+
+@keyframes botFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-5px);
+  }
 }
 
 .chat-screen {
