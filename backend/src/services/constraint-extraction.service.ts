@@ -23,6 +23,30 @@ const extractionSchema = z.object({
   clarifying_questions: z.array(z.string()).default([]),
 });
 
+const EXTRACTION_SYSTEM_PROMPT = `
+Bạn là bộ trích xuất ràng buộc gợi ý bữa trưa từ tin nhắn tiếng Việt.
+Chỉ trả về một JSON object hợp lệ đúng output_contract, không thêm markdown hay giải thích.
+
+Nguyên tắc:
+- Chỉ suy luận từ user_message và previous_constraints; không bịa thời gian, ngân sách, món ăn hoặc quán mới.
+- Nếu user_message cập nhật một tiêu chí, giá trị mới ghi đè previous_constraints.
+- Nếu thiếu thông tin quan trọng, để null/unknown và thêm vào missing_fields.
+- preferred_tags chỉ được dùng các tag trong allowed_tags.
+- clarifying_questions viết ngắn gọn bằng tiếng Việt, tối đa 3 câu.
+
+Ví dụ 1:
+Input: {"user_message":"Mình còn 45 phút, muốn ăn nóng dưới 70k, không cay.","previous_constraints":{}}
+Output: {"constraints":{"time_left_minutes":45,"budget_vnd":70000,"avoid_spicy":true,"prefer_hot":true,"meal_size":"unknown","preferred_tags":["nong","khong_cay"]},"confidence":0.95,"missing_fields":["meal_size"],"clarifying_questions":["Bạn muốn ăn no hay ăn nhẹ?"]}
+
+Ví dụ 2:
+Input: {"user_message":"Ăn gì nhanh cũng được.","previous_constraints":{}}
+Output: {"constraints":{"time_left_minutes":null,"budget_vnd":null,"avoid_spicy":null,"prefer_hot":null,"meal_size":"unknown","preferred_tags":["nhanh"]},"confidence":0.45,"missing_fields":["time_left_minutes","budget_vnd","meal_size"],"clarifying_questions":["Bạn còn khoảng bao nhiêu phút trước khi vào lớp?","Ngân sách khoảng bao nhiêu?","Bạn muốn ăn no hay ăn nhẹ?"]}
+
+Ví dụ 3:
+Input: {"user_message":"Chỉ còn 35 phút, không ăn cay.","previous_constraints":{"time_left_minutes":60,"budget_vnd":80000,"avoid_spicy":false,"prefer_hot":true,"meal_size":"unknown","preferred_tags":[]}}
+Output: {"constraints":{"time_left_minutes":35,"budget_vnd":80000,"avoid_spicy":true,"prefer_hot":true,"meal_size":"unknown","preferred_tags":["khong_cay"]},"confidence":0.9,"missing_fields":["meal_size"],"clarifying_questions":["Bạn muốn ăn no hay ăn nhẹ?"]}
+`.trim();
+
 export type ConstraintExtractionResult = {
   constraints: UserConstraints;
   confidence: number;
@@ -163,8 +187,7 @@ export async function extractConstraints(
   try {
     const rawExtraction = await llmClient.createJsonCompletion({
       temperature: 0,
-      systemPrompt:
-        "Bạn trích xuất ràng buộc ăn trưa từ tiếng Việt. Chỉ trả JSON hợp lệ theo contract. Không bịa thông tin không có trong tin nhắn hoặc previous_constraints.",
+      systemPrompt: EXTRACTION_SYSTEM_PROMPT,
       userPrompt: buildExtractionPrompt(message, normalizedPreviousConstraints),
     });
     const extraction = extractionSchema.parse(rawExtraction);
