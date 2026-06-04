@@ -49,11 +49,17 @@ Output: {"constraints":{"time_left_minutes":35,"budget_vnd":80000,"avoid_spicy":
 
 export type ConstraintExtractionResult = {
   constraints: UserConstraints;
+  currentConstraints: UserConstraints;
   confidence: number;
   missing_fields: string[];
   clarifying_questions: string[];
   source: "openai" | "fallback";
   hasUsefulSignal: boolean;
+  currentMessageHasUsefulSignal: boolean;
+};
+
+export type ExtractConstraintsOptions = {
+  mergePrevious?: boolean;
 };
 
 function removeNullValues(constraints: z.infer<typeof constraintsSchema>): UserConstraints {
@@ -156,20 +162,29 @@ function buildExtractionPrompt(
   );
 }
 
+function getCurrentMessageConstraints(message: string): UserConstraints {
+  return normalizeConstraints(parseConstraints(message, {}));
+}
+
 function fallbackExtractConstraints(
   message: string,
   previousConstraints: UserConstraints,
+  mergePrevious: boolean,
 ): ConstraintExtractionResult {
-  const parsed = parseConstraints(message, previousConstraints);
+  const baseConstraints = mergePrevious ? previousConstraints : {};
+  const parsed = parseConstraints(message, baseConstraints);
   const constraints = normalizeConstraints(parsed);
+  const currentConstraints = getCurrentMessageConstraints(message);
 
   return {
     constraints,
+    currentConstraints,
     confidence: parsed.hasUsefulSignal ? 0.55 : 0.2,
     missing_fields: getMissingFields(constraints),
     clarifying_questions: getClarifyingQuestions(constraints),
     source: "fallback",
-    hasUsefulSignal: parsed.hasUsefulSignal,
+    hasUsefulSignal: hasUsefulSignal(constraints),
+    currentMessageHasUsefulSignal: hasUsefulSignal(currentConstraints),
   };
 }
 
@@ -177,27 +192,36 @@ export async function extractConstraints(
   message: string,
   previousConstraints: UserConstraints = {},
   llmClient: LlmClient = openAIService,
+  options: ExtractConstraintsOptions = {},
 ): Promise<ConstraintExtractionResult> {
+  const mergePrevious = options.mergePrevious ?? true;
   const normalizedPreviousConstraints = normalizeConstraints(previousConstraints);
+  const baseConstraints = mergePrevious ? normalizedPreviousConstraints : {};
+  const currentConstraints = getCurrentMessageConstraints(message);
 
   if (!llmClient.isConfigured()) {
-    return fallbackExtractConstraints(message, normalizedPreviousConstraints);
+    return fallbackExtractConstraints(
+      message,
+      normalizedPreviousConstraints,
+      mergePrevious,
+    );
   }
 
   try {
     const rawExtraction = await llmClient.createJsonCompletion({
       temperature: 0,
       systemPrompt: EXTRACTION_SYSTEM_PROMPT,
-      userPrompt: buildExtractionPrompt(message, normalizedPreviousConstraints),
+      userPrompt: buildExtractionPrompt(message, baseConstraints),
     });
     const extraction = extractionSchema.parse(rawExtraction);
     const mergedConstraints = normalizeConstraints({
-      ...normalizedPreviousConstraints,
+      ...baseConstraints,
       ...removeNullValues(extraction.constraints),
     });
 
     return {
       constraints: mergedConstraints,
+      currentConstraints,
       confidence: extraction.confidence,
       missing_fields:
         extraction.missing_fields.length > 0
@@ -209,12 +233,17 @@ export async function extractConstraints(
           : getClarifyingQuestions(mergedConstraints),
       source: "openai",
       hasUsefulSignal: hasUsefulSignal(mergedConstraints),
+      currentMessageHasUsefulSignal: hasUsefulSignal(currentConstraints),
     };
   } catch (error) {
     console.warn(
       "Falling back to rule-based constraint parser:",
       error instanceof Error ? error.message : error,
     );
-    return fallbackExtractConstraints(message, normalizedPreviousConstraints);
+    return fallbackExtractConstraints(
+      message,
+      normalizedPreviousConstraints,
+      mergePrevious,
+    );
   }
 }

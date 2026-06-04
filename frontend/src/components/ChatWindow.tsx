@@ -9,12 +9,12 @@ import FoodCard from "./FoodCard";
 import {
   brandDeals,
   categories,
-  chatFoodSuggestions,
   foodDeals,
   sendChatPrompt,
   stopChatResponse
 } from "@/lib/api";
-import type { ChatHistoryItem, ChatMessage, ChatSession } from "@/lib/types";
+import { prepareChatRequest } from "@/lib/message-intent";
+import type { ChatMessage, ChatSession, UserConstraints } from "@/lib/types";
 
 const TYPEWRITER_DELAY_MS = 18;
 
@@ -173,10 +173,10 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
       content: trimmedPrompt,
       time: getCurrentTime()
     };
-    const history: ChatHistoryItem[] = [...activeSession.messages, userMessage].map((message) => ({
-      role: message.role,
-      content: message.content
-    }));
+    const { constraints, useCorrect } = prepareChatRequest(trimmedPrompt, {
+      constraints: activeSession.constraints,
+      lastStatus: activeSession.lastStatus
+    });
     const controller = new AbortController();
     const requestRunId = requestRunIdRef.current + 1;
     const requestId = createId();
@@ -195,16 +195,21 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
     updateSessionMessages(activeSession.id, (messages) => [...messages, userMessage], trimmedPrompt);
 
     try {
-      const response = await sendChatPrompt(trimmedPrompt, history, controller.signal);
+      const response = await sendChatPrompt(trimmedPrompt, constraints, {
+        signal: controller.signal,
+        useCorrect
+      });
 
       if (controller.signal.aborted || requestRunIdRef.current !== requestRunId) {
         return;
       }
 
+      updateSessionState(activeSession.id, response.constraints, response.status);
       setIsSending(false);
       typeAssistantMessage(activeSession.id, {
         content: response.assistantMessage,
         suggestions: response.suggestions,
+        questions: response.questions,
         isFallback: response.isFallback
       });
     } catch (error) {
@@ -227,7 +232,7 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
 
   function typeAssistantMessage(
     sessionId: string,
-    response: Pick<ChatMessage, "content" | "suggestions" | "isFallback">
+    response: Pick<ChatMessage, "content" | "suggestions" | "questions" | "isFallback">
   ) {
     clearStreamTimer();
 
@@ -265,7 +270,8 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
                 ...message,
                 content: nextContent,
                 isStreaming: index < response.content.length,
-                suggestions: index >= response.content.length ? response.suggestions : undefined
+                suggestions: index >= response.content.length ? response.suggestions : undefined,
+                questions: index >= response.content.length ? response.questions : undefined
               }
             : message
         )
@@ -331,6 +337,25 @@ function ChatBotScreen({ onBack }: { onBack: () => void }) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void handleSendPrompt(prompt);
+  }
+
+  function updateSessionState(
+    sessionId: string,
+    constraints: UserConstraints,
+    lastStatus: ChatSession["lastStatus"]
+  ) {
+    setSessions((currentSessions) =>
+      currentSessions.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              constraints,
+              lastStatus,
+              updatedAt: new Date().toISOString()
+            }
+          : session
+      )
+    );
   }
 
   function updateSessionMessages(
@@ -501,7 +526,14 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
             {message.content}
             {message.isStreaming ? <span className="stream-cursor" aria-hidden="true" /> : null}
           </p>
-          {message.isFallback ? <span className="fallback-note">Demo fallback</span> : null}
+          {message.isFallback ? <span className="fallback-note">Không kết nối được backend</span> : null}
+          {message.questions && message.questions.length > 0 ? (
+            <ul className="clarification-list">
+              {message.questions.map((question) => (
+                <li key={question}>{question}</li>
+              ))}
+            </ul>
+          ) : null}
           <time>{message.time}</time>
         </div>
       </div>
@@ -553,9 +585,12 @@ function SuggestionRow({ suggestions }: { suggestions: ChatMessage["suggestions"
             {item.image}
           </div>
           <h3>{item.name}</h3>
+          <p className="chat-food-restaurant">{item.restaurant}</p>
+          <p className="chat-food-reason">{item.reason}</p>
           <p>
             <strong>{item.price}</strong>
             <span> · {item.time}</span>
+            <span> · {item.risk === "low" ? "An toàn" : item.risk === "high" ? "Rủi ro cao" : "Khá gấp"}</span>
           </p>
           <button type="button" aria-label={`Thêm ${item.name}`}>
             +
@@ -623,7 +658,8 @@ function createChatSession(): ChatSession {
     title: "Cuộc trò chuyện mới",
     createdAt: now,
     updatedAt: now,
-    messages: []
+    messages: [],
+    constraints: {}
   };
 }
 
