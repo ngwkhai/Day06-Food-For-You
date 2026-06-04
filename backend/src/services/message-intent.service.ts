@@ -1,5 +1,4 @@
-import { normalizeConstraints, type UserConstraints } from "../types/constraint.js";
-import { parseConstraints } from "./parser.service.js";
+import type { UserConstraints } from "../types/constraint.js";
 
 export type MessageIntent =
   | "greeting"
@@ -25,13 +24,6 @@ function hasStoredConstraints(constraints: UserConstraints): boolean {
     constraints.prefer_hot !== undefined ||
     (constraints.meal_size !== undefined && constraints.meal_size !== "unknown") ||
     (constraints.preferred_tags?.length ?? 0) > 0
-  );
-}
-
-function hasCompleteConstraints(constraints: UserConstraints): boolean {
-  return (
-    constraints.time_left_minutes !== undefined &&
-    constraints.budget_vnd !== undefined
   );
 }
 
@@ -103,10 +95,7 @@ function isFoodCorrection(
   return correctionPatterns.some((pattern) => pattern.test(text));
 }
 
-function isVagueFoodRequest(
-  text: string,
-  currentConstraints: UserConstraints,
-): boolean {
+function isVagueFoodRequest(text: string): boolean {
   const vaguePatterns = [
     /\ban gi .* cung duoc\b/,
     /\ban gi nhanh\b/,
@@ -117,19 +106,7 @@ function isVagueFoodRequest(
     /\bco gi an\b/,
   ];
 
-  if (vaguePatterns.some((pattern) => pattern.test(text))) {
-    return !hasCompleteConstraints(currentConstraints);
-  }
-
-  const weakSignalOnly =
-    !hasCompleteConstraints(currentConstraints) &&
-    currentConstraints.avoid_spicy === undefined &&
-    currentConstraints.prefer_hot === undefined &&
-    (currentConstraints.meal_size === undefined ||
-      currentConstraints.meal_size === "unknown") &&
-    (currentConstraints.preferred_tags?.length ?? 0) > 0;
-
-  return weakSignalOnly;
+  return vaguePatterns.some((pattern) => pattern.test(text));
 }
 
 export function detectMessageIntent(
@@ -138,7 +115,6 @@ export function detectMessageIntent(
   options: { isCorrectionMode?: boolean } = {},
 ): MessageIntent {
   const text = normalizeText(message);
-  const currentConstraints = normalizeConstraints(parseConstraints(message, {}));
 
   if (isGreeting(text)) {
     return "greeting";
@@ -155,7 +131,7 @@ export function detectMessageIntent(
     return "food_correction";
   }
 
-  if (isVagueFoodRequest(text, currentConstraints)) {
+  if (isVagueFoodRequest(text)) {
     return "food_vague";
   }
 
@@ -179,18 +155,10 @@ export function shouldMergePreviousConstraints(
 
 export function shouldAskForClarification(
   intent: MessageIntent,
-  constraints: UserConstraints,
-  currentMessageHasUsefulSignal: boolean,
+  _constraints: UserConstraints,
+  _currentMessageHasUsefulSignal: boolean,
 ): boolean {
-  if (intent === "greeting" || intent === "off_topic" || intent === "food_vague") {
-    return true;
-  }
-
-  if (!currentMessageHasUsefulSignal && !hasCompleteConstraints(constraints)) {
-    return true;
-  }
-
-  return !hasCompleteConstraints(constraints);
+  return intent === "off_topic";
 }
 
 export function getResponseConstraints(

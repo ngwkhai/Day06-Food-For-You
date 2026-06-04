@@ -30,7 +30,7 @@ Chỉ trả về một JSON object hợp lệ đúng output_contract, không th�
 Nguyên tắc:
 - Chỉ suy luận từ user_message và previous_constraints; không bịa thời gian, ngân sách, món ăn hoặc quán mới.
 - Nếu user_message cập nhật một tiêu chí, giá trị mới ghi đè previous_constraints.
-- Nếu thiếu thông tin quan trọng, để null/unknown và thêm vào missing_fields.
+- Nếu thiếu thông tin, để null/unknown và ghi vào missing_fields; clarifying_questions chỉ là gợi ý tùy chọn, không chặn gợi ý món.
 - preferred_tags chỉ được dùng các tag trong allowed_tags.
 - clarifying_questions viết ngắn gọn bằng tiếng Việt, tối đa 3 câu.
 

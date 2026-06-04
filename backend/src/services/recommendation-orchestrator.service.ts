@@ -10,6 +10,7 @@ import {
   getResponseConstraints,
   shouldAskForClarification,
   shouldMergePreviousConstraints,
+  type MessageIntent,
 } from "./message-intent.service.js";
 import type { LlmClient } from "./openai.service.js";
 import { recommendFoods } from "./recommendation.service.js";
@@ -95,32 +96,32 @@ function buildOkMessage(
   return `${prefix} ${recommendations.length} món${detail}.`;
 }
 
-function buildGreetingResponse(): ApiResponse {
-  return {
-    status: "need_clarification",
-    assistant_message:
-      "Chào bạn! Mình là trợ lý gợi ý bữa trưa Xanh SM Ngon. Bạn cho mình biết thời gian nghỉ và ngân sách để gợi ý món phù hợp nhé.",
-    constraints: {},
-    recommendations: [],
-    questions: [
-      "Bạn còn khoảng bao nhiêu phút trước khi vào lớp?",
-      "Ngân sách khoảng bao nhiêu?",
-    ],
-  };
-}
-
 function buildOffTopicResponse(): ApiResponse {
   return {
     status: "need_clarification",
     assistant_message:
-      "Mình chỉ hỗ trợ gợi ý món ăn cho bữa trưa trên Xanh SM Ngon. Bạn cho mình biết thời gian nghỉ và ngân sách để mình gợi ý món nhé.",
+      "Mình chỉ hỗ trợ gợi ý món ăn cho bữa trưa trên Xanh SM Ngon. Bạn có thể nhắn món bạn thích, ngân sách hoặc thời gian nghỉ để mình gợi ý nhé.",
     constraints: {},
     recommendations: [],
-    questions: [
-      "Bạn còn khoảng bao nhiêu phút trước khi vào lớp?",
-      "Ngân sách khoảng bao nhiêu?",
-    ],
+    questions: [],
   };
+}
+
+function buildAssistantMessage(
+  intent: MessageIntent,
+  constraints: UserConstraints,
+  recommendations: FoodRecommendation[],
+  isCorrection: boolean,
+): string {
+  if (intent === "greeting") {
+    if (recommendations.length > 0) {
+      return "Chào bạn! Mình là trợ lý gợi ý bữa trưa Xanh SM Ngon. Dưới đây là vài món phổ biến, bạn có thể bổ sung ngân sách hoặc thời gian để mình lọc chính xác hơn.";
+    }
+
+    return "Chào bạn! Mình là trợ lý gợi ý bữa trưa Xanh SM Ngon. Bạn cho mình biết sở thích, ngân sách hoặc thời gian nghỉ để mình gợi ý món phù hợp nhé.";
+  }
+
+  return buildOkMessage(constraints, recommendations, isCorrection);
 }
 
 async function buildBaseResponse(
@@ -132,10 +133,6 @@ async function buildBaseResponse(
   const intent = detectMessageIntent(message, previousConstraints, {
     isCorrectionMode: options.isCorrection,
   });
-
-  if (intent === "greeting") {
-    return buildGreetingResponse();
-  }
 
   if (intent === "off_topic") {
     return buildOffTopicResponse();
@@ -196,7 +193,8 @@ async function buildBaseResponse(
 
   return {
     status: "ok",
-    assistant_message: buildOkMessage(
+    assistant_message: buildAssistantMessage(
+      intent,
       responseConstraints,
       recommendations,
       options.isCorrection ?? false,
