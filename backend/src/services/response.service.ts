@@ -34,14 +34,8 @@ function buildClarificationQuestions(constraints: UserConstraints): string[] {
   return questions.slice(0, 3);
 }
 
-function shouldAskForClarification(parsed: ParsedConstraints): boolean {
-  if (!parsed.hasUsefulSignal) {
-    return true;
-  }
-
-  return (
-    parsed.time_left_minutes === undefined || parsed.budget_vnd === undefined
-  );
+function shouldAskForClarification(_parsed: ParsedConstraints): boolean {
+  return false;
 }
 
 function buildOkMessage(

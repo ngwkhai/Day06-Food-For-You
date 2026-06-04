@@ -122,6 +122,7 @@ export function parseConstraints(
     constraints.preferred_tags = Array.from(
       new Set([...(constraints.preferred_tags ?? []), ...parsedTags]),
     );
+    hasUsefulSignal = true;
   }
 
   return {

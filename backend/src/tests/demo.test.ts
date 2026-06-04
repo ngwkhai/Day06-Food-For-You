@@ -78,10 +78,29 @@ async function testLowConfidencePathFallback() {
   );
 
   assertContractShape(response);
-  assert.equal(response.status, "need_clarification");
-  assert.equal(response.recommendations.length, 0);
-  assert.ok(response.questions.length > 0);
-  assert.ok(response.questions.length <= 3);
+  assert.equal(response.status, "ok");
+  assert.equal(response.recommendations.length, 3);
+  assert.ok((response.constraints.preferred_tags ?? []).includes("nhanh"));
+}
+
+async function testPartialBudgetOnlyFallback() {
+  const response = await buildRecommendationResponse(
+    "Ngân sách khoảng 50k thôi.",
+    {},
+    {},
+    { llmClient: new FakeLlmClient(false) },
+  );
+
+  assertContractShape(response);
+  assert.equal(response.status, "ok");
+  assert.ok(response.recommendations.length > 0);
+  assert.equal(response.constraints.budget_vnd, 50000);
+  assert.equal(response.constraints.time_left_minutes, undefined);
+
+  for (const recommendation of response.recommendations) {
+    const food = getFoodById(recommendation.id);
+    assert.ok(food.price_vnd <= 50000);
+  }
 }
 
 async function testCorrectionPathFallback() {
@@ -171,7 +190,7 @@ async function testMockedOpenAIExtractionAndAnswer() {
   assert.ok(response.recommendations.length > 0);
 }
 
-async function testGreetingDoesNotRecommend() {
+async function testGreetingWithRecommendations() {
   const response = await buildRecommendationResponse(
     "chào bạn",
     {
@@ -185,8 +204,8 @@ async function testGreetingDoesNotRecommend() {
   );
 
   assertContractShape(response);
-  assert.equal(response.status, "need_clarification");
-  assert.equal(response.recommendations.length, 0);
+  assert.equal(response.status, "ok");
+  assert.equal(response.recommendations.length, 3);
   assert.deepEqual(response.constraints, {});
 }
 
@@ -223,10 +242,11 @@ async function testVagueFoodRequestIgnoresPreviousConstraints() {
   );
 
   assertContractShape(response);
-  assert.equal(response.status, "need_clarification");
-  assert.equal(response.recommendations.length, 0);
+  assert.equal(response.status, "ok");
+  assert.equal(response.recommendations.length, 3);
   assert.equal(response.constraints.time_left_minutes, undefined);
   assert.equal(response.constraints.budget_vnd, undefined);
+  assert.ok((response.constraints.preferred_tags ?? []).includes("nhanh"));
 }
 
 async function testTrackOrderIsOffTopic() {
@@ -268,9 +288,10 @@ async function testOpenAIInvalidJsonFallsBack() {
 
 await testHappyPathFallback();
 await testLowConfidencePathFallback();
+await testPartialBudgetOnlyFallback();
 await testCorrectionPathFallback();
 await testNoResultPathFallback();
-await testGreetingDoesNotRecommend();
+await testGreetingWithRecommendations();
 await testOffTopicDoesNotRecommend();
 await testVagueFoodRequestIgnoresPreviousConstraints();
 await testTrackOrderIsOffTopic();
